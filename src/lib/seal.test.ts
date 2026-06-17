@@ -20,6 +20,11 @@ function forceLocalEnvelopeMode() {
   process.env.SEAL_MOCK_MODE = "true";
   delete process.env.SEAL_PACKAGE_ID;
   delete process.env.SEAL_KEY_SERVER_OBJECT_IDS;
+  delete process.env.SEAL_KEY_SERVER_WEIGHTS;
+  delete process.env.SEAL_KEY_SERVER_API_KEY_NAME;
+  delete process.env.SEAL_KEY_SERVER_API_KEY;
+  delete process.env.SEAL_KEY_SERVER_AGGREGATOR_URL;
+  delete process.env.SEAL_KEY_SERVER_CONFIGS_JSON;
 }
 
 function makeArtifact(): PrivateMemoryArtifact {
@@ -48,6 +53,38 @@ test("status reports local-envelope mode (owner-gated AES) when mock mode is on"
   assert.equal(status.mode, "local-envelope");
   assert.equal(status.ready, true);
   assert.equal(status.mockMode, true);
+});
+
+test("status enables real Seal mode for a configured Sui mainnet provider", () => {
+  forceLocalEnvelopeMode();
+  process.env.SEAL_MOCK_MODE = "false";
+  process.env.SUI_NETWORK = "mainnet";
+  process.env.SEAL_PACKAGE_ID = `0x${"33".repeat(32)}`;
+  process.env.SEAL_KEY_SERVER_OBJECT_IDS = `0x${"44".repeat(32)}`;
+  process.env.SEAL_KEY_SERVER_API_KEY_NAME = "x-api-key";
+  process.env.SEAL_KEY_SERVER_API_KEY = "provider-secret";
+
+  const status = getSealIntegrationStatus();
+  assert.equal(status.mode, "seal-sdk-configured");
+  assert.equal(status.ready, true);
+  assert.equal(status.mockMode, false);
+  assert.equal(status.network, "mainnet");
+  assert.equal(status.keyServerCount, 1);
+  assert.equal(status.keyServerConfigSource, "object-ids");
+  assert.equal(status.keyServerAuthConfigured, true);
+});
+
+test("status reports JSON key-server config errors without enabling real Seal", () => {
+  forceLocalEnvelopeMode();
+  process.env.SEAL_MOCK_MODE = "false";
+  process.env.SEAL_PACKAGE_ID = `0x${"33".repeat(32)}`;
+  process.env.SEAL_KEY_SERVER_CONFIGS_JSON = JSON.stringify([{ weight: 1 }]);
+
+  const status = getSealIntegrationStatus();
+  assert.equal(status.mode, "local-envelope");
+  assert.equal(status.ready, false);
+  assert.equal(status.keyServerConfigSource, "json");
+  assert.deepEqual(status.errors, ["SEAL_KEY_SERVER_CONFIGS_JSON[0] is missing objectId"]);
 });
 
 test("encrypt -> decrypt round trip returns the same artifact for the owner", async () => {

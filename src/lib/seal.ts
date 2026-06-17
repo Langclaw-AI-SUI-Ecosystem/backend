@@ -15,8 +15,23 @@ export type SealIntegrationStatus = {
   packageId?: string;
   threshold: number;
   keyServerCount: number;
+  keyServerConfigSource: "json" | "object-ids" | "empty";
+  keyServerAuthConfigured: boolean;
+  keyServerAggregatorConfigured: boolean;
+  network: SealNetwork;
   missing: string[];
+  errors: string[];
 };
+
+type SealKeyServerConfig = {
+  objectId: string;
+  weight: number;
+  apiKeyName?: string;
+  apiKey?: string;
+  aggregatorUrl?: string;
+};
+
+type SealNetwork = "testnet" | "mainnet" | "devnet" | "localnet";
 
 export class SealAccessDeniedError extends Error {
   constructor() {
@@ -36,15 +51,15 @@ export function getSealPolicyId() {
 
 export function getSealIntegrationStatus(): SealIntegrationStatus {
   const config = readSealConfig();
-  const missing: string[] = [];
+  const missing = [...config.errors];
 
   if (!config.mockMode) {
     if (!config.packageId) {
       missing.push("SEAL_PACKAGE_ID");
     }
 
-    if (config.keyServerObjectIds.length === 0) {
-      missing.push("SEAL_KEY_SERVER_OBJECT_IDS");
+    if (config.keyServerConfigs.length === 0) {
+      missing.push("SEAL_KEY_SERVER_CONFIGS_JSON or SEAL_KEY_SERVER_OBJECT_IDS");
     }
   }
 
@@ -55,8 +70,17 @@ export function getSealIntegrationStatus(): SealIntegrationStatus {
     policyId: config.policyId,
     packageId: config.packageId,
     threshold: config.threshold,
-    keyServerCount: config.keyServerObjectIds.length,
+    keyServerCount: config.keyServerConfigs.length,
+    keyServerConfigSource: config.keyServerConfigSource,
+    keyServerAuthConfigured: config.keyServerConfigs.some(
+      (serverConfig) => serverConfig.apiKeyName !== undefined || serverConfig.apiKey !== undefined
+    ),
+    keyServerAggregatorConfigured: config.keyServerConfigs.some(
+      (serverConfig) => serverConfig.aggregatorUrl !== undefined
+    ),
+    network: config.network,
     missing,
+    errors: config.errors,
   };
 }
 
@@ -112,7 +136,7 @@ async function encryptWithSeal(
 
   const sealClient = new SealClient({
     suiClient,
-    serverConfigs: config.keyServerObjectIds.map((objectId) => ({ objectId, weight: 1 })),
+    serverConfigs: config.keyServerConfigs,
     verifyKeyServers: true,
   });
 
@@ -131,8 +155,8 @@ async function encryptWithSeal(
     sealPackageId: config.packageId,
     sealIdentity: identity,
     sealThreshold: config.threshold,
-    sealKeyServerObjectIds: config.keyServerObjectIds,
-    sealKeyServerCount: config.keyServerObjectIds.length,
+    sealKeyServerObjectIds: config.keyServerConfigs.map((serverConfig) => serverConfig.objectId),
+    sealKeyServerCount: config.keyServerConfigs.length,
     sealEncryptedObject: Buffer.from(encryptedObject).toString("base64"),
     createdAt: new Date().toISOString(),
   };
@@ -160,9 +184,7 @@ async function decryptWithSeal(
 
   const sealClient = new SealClient({
     suiClient,
-    serverConfigs: (envelope.sealKeyServerObjectIds ?? config.keyServerObjectIds).map(
-      (objectId) => ({ objectId, weight: 1 })
-    ),
+    serverConfigs: resolveEnvelopeServerConfigs(envelope, config),
     verifyKeyServers: true,
   });
 
@@ -225,7 +247,7 @@ function encryptWithLocalEnvelope(plaintext: Buffer, ownerAddress: string): Seal
     sealMode: "local-envelope",
     sealPackageId: readSealConfig().packageId,
     sealIdentity: buildSealIdentity(ownerAddress),
-    sealKeyServerCount: readSealConfig().keyServerObjectIds.length,
+    sealKeyServerCount: readSealConfig().keyServerConfigs.length,
     algorithm: "aes-256-gcm",
     iv: iv.toString("base64"),
     authTag: authTag.toString("base64"),
@@ -312,28 +334,153 @@ type SealConfig = {
   policyId: string;
   packageId?: string;
   mockMode: boolean;
-  keyServerObjectIds: string[];
+  keyServerConfigs: SealKeyServerConfig[];
+  keyServerConfigSource: "json" | "object-ids" | "empty";
+  errors: string[];
   threshold: number;
   rpcUrl: string;
-  network: "testnet" | "mainnet" | "devnet" | "localnet";
+  network: SealNetwork;
 };
 
 function readSealConfig(): SealConfig {
-  const keyServerObjectIds = splitEnvList(process.env.SEAL_KEY_SERVER_OBJECT_IDS);
-  const thresholdValue = Number(process.env.SEAL_THRESHOLD || keyServerObjectIds.length || 1);
+  const keyServerConfigResult = readKeyServerConfigs();
+  const thresholdValue = Number(
+    process.env.SEAL_THRESHOLD || keyServerConfigResult.configs.length || 1
+  );
 
   return {
     policyId: getSealPolicyId(),
     packageId: cleanEnv(process.env.SEAL_PACKAGE_ID),
     mockMode: readBoolean(process.env.SEAL_MOCK_MODE, true),
-    keyServerObjectIds,
+    keyServerConfigs: keyServerConfigResult.configs,
+    keyServerConfigSource: keyServerConfigResult.source,
+    errors: keyServerConfigResult.errors,
     threshold: Number.isFinite(thresholdValue) && thresholdValue > 0 ? thresholdValue : 1,
     rpcUrl: cleanEnv(process.env.SUI_RPC_URL) || "https://fullnode.mainnet.sui.io:443",
     network: readSuiNetwork(process.env.SUI_NETWORK),
   };
 }
 
-function readSuiNetwork(value: string | undefined): SealConfig["network"] {
+function readKeyServerConfigs(): {
+  configs: SealKeyServerConfig[];
+  source: SealConfig["keyServerConfigSource"];
+  errors: string[];
+} {
+  const json = cleanEnv(process.env.SEAL_KEY_SERVER_CONFIGS_JSON);
+
+  if (json) {
+    try {
+      const parsed = JSON.parse(json) as unknown;
+
+      if (!Array.isArray(parsed)) {
+        return {
+          configs: [],
+          source: "json",
+          errors: ["SEAL_KEY_SERVER_CONFIGS_JSON must be a JSON array"],
+        };
+      }
+
+      const configs: SealKeyServerConfig[] = [];
+      const errors: string[] = [];
+
+      parsed.forEach((entry, index) => {
+        const config = parseKeyServerConfig(entry);
+        if (config) {
+          configs.push(config);
+          return;
+        }
+
+        errors.push(`SEAL_KEY_SERVER_CONFIGS_JSON[${index}] is missing objectId`);
+      });
+
+      return { configs, source: "json", errors };
+    } catch (error) {
+      return {
+        configs: [],
+        source: "json",
+        errors: [
+          `SEAL_KEY_SERVER_CONFIGS_JSON is not valid JSON: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ],
+      };
+    }
+  }
+
+  const objectIds = splitEnvList(process.env.SEAL_KEY_SERVER_OBJECT_IDS);
+  if (objectIds.length === 0) {
+    return { configs: [], source: "empty", errors: [] };
+  }
+
+  const weights = splitEnvList(process.env.SEAL_KEY_SERVER_WEIGHTS).map((weight) =>
+    Number(weight)
+  );
+  const apiKeyName = cleanEnv(process.env.SEAL_KEY_SERVER_API_KEY_NAME);
+  const apiKey = cleanEnv(process.env.SEAL_KEY_SERVER_API_KEY);
+  const aggregatorUrl = cleanEnv(process.env.SEAL_KEY_SERVER_AGGREGATOR_URL);
+
+  return {
+    configs: objectIds.map((objectId, index) => ({
+      objectId,
+      weight: Number.isFinite(weights[index]) && weights[index] > 0 ? weights[index] : 1,
+      ...(apiKeyName ? { apiKeyName } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      ...(aggregatorUrl ? { aggregatorUrl } : {}),
+    })),
+    source: "object-ids",
+    errors: [],
+  };
+}
+
+function parseKeyServerConfig(value: unknown): SealKeyServerConfig | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const objectId = typeof record.objectId === "string" ? cleanEnv(record.objectId) : undefined;
+
+  if (!objectId) {
+    return undefined;
+  }
+
+  const weight = Number(record.weight ?? 1);
+  const apiKeyName =
+    typeof record.apiKeyName === "string" ? cleanEnv(record.apiKeyName) : undefined;
+  const apiKey = typeof record.apiKey === "string" ? cleanEnv(record.apiKey) : undefined;
+  const aggregatorUrl =
+    typeof record.aggregatorUrl === "string" ? cleanEnv(record.aggregatorUrl) : undefined;
+
+  return {
+    objectId,
+    weight: Number.isFinite(weight) && weight > 0 ? weight : 1,
+    ...(apiKeyName ? { apiKeyName } : {}),
+    ...(apiKey ? { apiKey } : {}),
+    ...(aggregatorUrl ? { aggregatorUrl } : {}),
+  };
+}
+
+function resolveEnvelopeServerConfigs(
+  envelope: SealEnvelope,
+  config: SealConfig
+): SealKeyServerConfig[] {
+  const envelopeObjectIds = envelope.sealKeyServerObjectIds;
+
+  if (!envelopeObjectIds || envelopeObjectIds.length === 0) {
+    return config.keyServerConfigs;
+  }
+
+  return envelopeObjectIds.map((objectId) => {
+    return (
+      config.keyServerConfigs.find((serverConfig) => serverConfig.objectId === objectId) ?? {
+        objectId,
+        weight: 1,
+      }
+    );
+  });
+}
+
+function readSuiNetwork(value: string | undefined): SealNetwork {
   const cleaned = value?.trim();
 
   if (

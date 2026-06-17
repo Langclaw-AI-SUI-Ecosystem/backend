@@ -72,7 +72,7 @@ async function main() {
   if (status.mode !== "seal-sdk-configured") {
     console.error(
       "\nNot in seal-sdk-configured mode (need SEAL_MOCK_MODE=false + " +
-        "SEAL_KEY_SERVER_OBJECT_IDS + SEAL_PACKAGE_ID). Aborting."
+        "SEAL_PACKAGE_ID + provider key server config). Aborting."
     );
     process.exit(1);
   }

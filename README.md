@@ -279,7 +279,7 @@ With publisher unset, the backend uses the local fallback and reports
 | --- | --- |
 | Walrus aggregator | configured: `https://aggregator.walrus-mainnet.walrus.space` |
 | Walrus publisher | pending authenticated publisher or upload relay |
-| Seal mode | `local-envelope` unless mainnet Seal package and key server ids are configured |
+| Seal mode | `local-envelope` unless `SEAL_MOCK_MODE=false`, the mainnet package id, and a mainnet key server config are set |
 | MemWal | optional, uses `https://relayer.memory.walrus.xyz` when configured |
 | Sui memory anchor | pending mainnet package publish and `SUI_REGISTRY_PACKAGE_ID` |
 
@@ -316,16 +316,48 @@ On mainnet this becomes active after the memory registry package is published an
 
 The chain restores the *verifiable pointers*; **decrypting** the content on a
 different device is handled by real Seal (`seal-sdk-configured`) when the
-mainnet Seal package and key server object ids are configured. The owner's
+mainnet Seal package and a mainnet key server config are set. The owner's
 SessionKey unlocks a key share through the `access_policy::seal_approve` owner
 gate, so the AES key is no longer machine-local.
+
+Mainnet Seal setup:
+
+```bash
+SUI_NETWORK=mainnet
+SUI_RPC_URL=https://fullnode.mainnet.sui.io:443
+SEAL_MOCK_MODE=false
+SEAL_PACKAGE_ID=0x7f3578ebe174b0343cd96391b2a1c75d5db4ad82c793650b3950bdb5634192e5
+SEAL_KEY_SERVER_OBJECT_IDS=<provider-issued-mainnet-key-server-object-id>
+SEAL_KEY_SERVER_API_KEY_NAME=<provider-api-key-header-name>
+SEAL_KEY_SERVER_API_KEY=<provider-api-key>
+SEAL_THRESHOLD=1
+```
+
+Self-host Open mode uses the same backend env shape. Register an independent
+key server with the official Seal `key_server` package, run it with the matching
+master key, and put the created `KeyServer` object id in
+`SEAL_KEY_SERVER_OBJECT_IDS`. Open mode does not need
+`SEAL_KEY_SERVER_API_KEY_NAME` or `SEAL_KEY_SERVER_API_KEY`. Use a stable public
+HTTPS URL for a public demo; a temporary tunnel is only suitable for local proof.
+
+For multiple providers, or when each provider uses different auth, prefer the
+JSON form:
+
+```bash
+SEAL_KEY_SERVER_CONFIGS_JSON='[{"objectId":"0x...","weight":1,"apiKeyName":"x-api-key","apiKey":"..."}]'
+```
+
+The public decentralized committee key server for mainnet is not self-serve yet.
+Use a verified independent mainnet provider such as Enoki, Ruby Nodes,
+NodeInfra, Overclock, Studio Mirai, H2O Nodes, Triton One, or Natsai, or run a
+self-host independent server when you can keep the key and URL stable.
 
 > **Upgrade gotcha (important).** Both Seal (`SEAL_PACKAGE_ID`) and the
 > recall-from-chain event query (`SUI_REGISTRY_EVENT_PACKAGE_ID`) must use the
 > registry's **first-version / original-publish** package id
 > from the mainnet publish, not a later upgraded runtime id. Seal rejects a
 > non-first-version package and `MemoryRecorded` events are typed by the defining
-> package. Set `SEAL_MOCK_MODE=true` (or omit `SEAL_KEY_SERVER_OBJECT_IDS`) to
+> package. Set `SEAL_MOCK_MODE=true` (or omit the key server config) to
 > fall back to the offline `local-envelope` AES mode, and
 > `SUI_MEMORY_RECALL_FROM_CHAIN=false` to disable chain recall.
 
