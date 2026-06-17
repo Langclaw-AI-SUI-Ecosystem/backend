@@ -1,0 +1,66 @@
+{
+  "schema": "langclaw.evidence.v1",
+  "runId": "sui_alpha_sample",
+  "topic": "Analyze Sui DEX accumulation and smart-money signals for SUI",
+  "generatedAt": "2026-06-17T00:00:00.000Z",
+  "sui": {
+    "chain": "sui-mainnet",
+    "chainId": 0,
+    "packageId": "0x7f3578ebe174b0343cd96391b2a1c75d5db4ad82c793650b3950bdb5634192e5",
+    "agentId": 133,
+    "decisionId": 1,
+    "signalType": "smart-money",
+    "proofTx": "prepared",
+    "recorder": "0x4b635af81752a2bcdaeb908bd522173ad1c86a859a9c56ee59d3089c35e0a622",
+    "evidenceUri": "langclaw://evidence/sui_alpha_sample/sample"
+  },
+  "sources": [
+    {
+      "id": "dune-sui-dex-flow",
+      "type": "onchain_dex_flow",
+      "title": "Sui DEX accumulation rows",
+      "url": "https://dune.com/queries",
+      "provider": "dune",
+      "summary": "Queried Sui DEX rows for accumulation candidates. Empty or partial provider coverage must be reported as a source gap."
+    },
+    {
+      "id": "sui-rpc-context",
+      "type": "onchain_rpc_context",
+      "title": "Sui RPC account context",
+      "provider": "sui-rpc",
+      "summary": "Checked Sui account context where available. The workflow does not infer Ethereum token activity from Sui chain activity."
+    },
+    {
+      "id": "local-smart-money-synthesis",
+      "type": "agent_synthesis",
+      "title": "Smart-money signal synthesis",
+      "provider": "local",
+      "summary": "Synthesized successful tool results into an analysis-only smart-money monitoring signal."
+    }
+  ],
+  "providerErrors": [],
+  "orchestrationSteps": [
+    {
+      "agent": "Sui Intelligence Planner",
+      "status": "complete",
+      "summary": "Detected a Sui analysis topic and selected Sui DEX, RPC, and synthesis tools."
+    },
+    {
+      "agent": "Sui Tool Runner",
+      "status": "complete",
+      "summary": "Collected Sui evidence and recorded source gaps without fabricating data."
+    },
+    {
+      "agent": "Sui Decision Anchor",
+      "status": "prepared",
+      "summary": "Prepared the decision hash and evidence URI for Sui decision_registry proof."
+    }
+  ],
+  "finalAnswer": {
+    "title": "Sui smart-money watch",
+    "signal": "Sui accumulation activity needs monitoring",
+    "confidence": "medium",
+    "recommendation": "Add the strongest source-backed signal to the Sui Alpha watchlist and record the Sui proof when proof env is configured.",
+    "caveat": "This is analysis-only. Langclaw did not sign, send, swap, buy, sell, or execute any trade."
+  }
+}

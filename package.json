@@ -1,0 +1,40 @@
+{
+  "name": "langclaw-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "dev": "tsx watch src/server.ts",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "check:sui-proof": "node --import tsx src/scripts/check-sui-proof-readiness.ts",
+    "dune:create-strategy-query": "node scripts/create-dune-strategy-query.mjs --write-env",
+    "smoke:strategy-lab": "node scripts/smoke-strategy-lab.mjs",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:watch": "node --import tsx --test --watch \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "demo": "node --import tsx scripts/demo.ts",
+    "check:walrus-readiness": "node --import tsx scripts/check-walrus-readiness.ts",
+    "smoke:memwal": "node --import tsx --env-file=.env scripts/memwal-smoke.ts",
+    "demo:walrus-public": "node --import tsx --env-file=.env scripts/walrus-public-demo.ts",
+    "smoke:deposit-dryrun": "node --import tsx scripts/usage-deposit-dryrun.ts"
+  },
+  "dependencies": {
+    "@mysten-incubation/memwal": "^0.0.7",
+    "@mysten/seal": "^1.1.3",
+    "@mysten/sui": "latest",
+    "@mysten/walrus": "latest",
+    "@supabase/supabase-js": "^2.105.4",
+    "dotenv": "^17.4.2",
+    "viem": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  },
+  "overrides": {
+    "axios": "^1.16.1",
+    "tmp": "^0.2.5"
+  }
+}
