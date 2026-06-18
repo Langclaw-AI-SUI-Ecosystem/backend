@@ -287,6 +287,13 @@ the backend uses the local fallback and reports `walrusStorageMode: local`.
 Reproduce / recheck from this folder:
 
 ```bash
+# Public proof, no private keys. Verifies public Walrus blobs, Seal service
+# identity, and Sui transactions from the submitted mainnet evidence.
+npm run verify:public-proof
+
+# Operator setup. Fill only secret placeholders before running live writes.
+cp .env.mainnet.example .env
+
 # Full pipeline against mainnet (stores on Walrus + anchors on Sui) + independent
 # aggregator GET:
 node --import tsx --env-file=.env scripts/walrus-mainnet-proof.ts "your topic"
@@ -297,11 +304,16 @@ node --import tsx --env-file=.env scripts/memory-recall-from-chain-proof.ts
 
 # Adapter-mode + latest-blob durability readiness:
 npm run check:walrus-readiness
+
+# Judge-safe mainnet readiness. This fails if Walrus, Seal, MemWal, or Sui
+# registry are still using local fallback or disabled mode.
+npm run check:walrus-readiness:mainnet
 ```
 
-The readiness check reports the live Walrus / Seal / MemWal adapter modes and, in
-`http` mode, retrieves the latest encrypted memory blob back from the aggregator
-to confirm durability.
+The default readiness check reports adapter modes and retrieves the latest proof.
+If a local index points at a public mainnet blob, it falls back to the public
+aggregator for durability verification. The strict mainnet check is the one to
+use before recording the final demo because it fails on local fallback.
 
 ### Recall-from-chain (portability)
 
@@ -386,6 +398,7 @@ npm run check:sui-proof
 npm run dune:create-strategy-query
 npm run smoke:strategy-lab
 npm run check:walrus-readiness
+npm run check:walrus-readiness:mainnet
 npm run smoke:memwal
 npm run demo:walrus-public
 npm run smoke:deposit-dryrun

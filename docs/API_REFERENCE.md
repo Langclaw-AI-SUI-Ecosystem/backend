@@ -374,7 +374,29 @@ Response:
 CLI equivalent:
 
 ```bash
-npm run check:proof
+npm run check:sui-proof
+```
+
+### `POST /api/proofs/walrus-readiness`
+
+Checks the Walrus private-memory layer. Default mode reports adapter status and
+verifies the latest proof. Strict mainnet mode fails if Walrus, Seal, MemWal, or
+the Sui memory registry still use local fallback or disabled mode.
+
+Request:
+
+```json
+{
+  "ownerAddress": "0x...",
+  "strictMainnet": true
+}
+```
+
+CLI equivalents:
+
+```bash
+npm run check:walrus-readiness
+npm run check:walrus-readiness:mainnet
 ```
 
 ### `POST /api/proofs/decisions`

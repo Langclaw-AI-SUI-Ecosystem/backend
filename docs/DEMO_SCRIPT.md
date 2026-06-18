@@ -2,6 +2,25 @@
 
 Target length: 3 to 4 minutes.
 
+## Pre-recording setup
+
+- Use a Sui wallet that is already linked to Telegram.
+- Turn on Developer Mode for that account if the demo should avoid prepaid SUI
+  credit friction. Developer Mode skips reservations and returns zero-cost
+  receipts.
+- On the backend operator machine, copy `backend/.env.mainnet.example` to
+  `backend/.env`, fill the secret placeholders, then run:
+
+```bash
+cd backend
+npm run check:walrus-readiness:mainnet
+npm run verify:public-proof
+```
+
+The strict readiness command must show Walrus `http` mode, Seal SDK mode, MemWal
+ready, Sui registry ready, and latest memory proof retrievable from the public
+aggregator.
+
 ## 0:00 to 0:25
 
 Say:
@@ -86,7 +105,7 @@ Walrus is the memory layer, Seal controls private recall, and Sui records the pr
 ```bash
 cd backend
 npm run proof:seal
-npm run check:walrus-readiness
+npm run check:walrus-readiness:mainnet
 npm run check:eligibility
 npm run verify:public-proof
 npm test

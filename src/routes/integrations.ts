@@ -13,9 +13,14 @@ export async function handleWalrusReadiness(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
       ownerAddress?: unknown;
+      strictMainnet?: unknown;
     };
     ownerAddress =
       typeof body.ownerAddress === "string" ? body.ownerAddress : undefined;
+    const strictMainnet = body.strictMainnet === true;
+    const report = await getWalrusReadiness(ownerAddress, { strictMainnet });
+
+    return Response.json(report, { status: report.ready ? 200 : 503 });
   } catch {
     // Empty / invalid body is fine: report global readiness.
   }

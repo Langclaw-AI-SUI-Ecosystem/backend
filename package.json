@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit",
     "demo": "node --import tsx scripts/demo.ts",
     "check:walrus-readiness": "node --import tsx scripts/check-walrus-readiness.ts",
+    "check:walrus-readiness:mainnet": "node --import tsx scripts/check-walrus-readiness.ts --strict-mainnet",
     "proof:walrus-mainnet": "node --import tsx --env-file=.env scripts/walrus-mainnet-proof.ts",
     "proof:seal": "SEAL_STRICT_MODE=true node --import tsx --env-file=.env scripts/seal-roundtrip-proof.ts",
     "verify:public-proof": "node --import tsx scripts/verify-public-proof.ts",
