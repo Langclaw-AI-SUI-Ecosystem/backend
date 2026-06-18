@@ -29,7 +29,7 @@ also use Walrus. A later run reads those artifacts before new analysis begins.
 
 ## Live mainnet evidence
 
-Live app: <https://langclaw.43-129-56-85.sslip.io>
+Live app: <https://langclaw-sui-walrus.vercel.app>
 
 | Item | Value |
 | --- | --- |
