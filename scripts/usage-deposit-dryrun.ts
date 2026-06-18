@@ -4,7 +4,7 @@
 // with [vault, coin, empty u8 vector]) is valid against the live Move module,
 // WITHOUT spending anything (dryRunTransactionBlock does not execute).
 //
-//   cd backend && node --import tsx scripts/usage-deposit-dryrun.ts
+//   node --import tsx scripts/usage-deposit-dryrun.ts
 //
 // Exits non-zero if the dry run does not succeed or no Deposited event would fire.
 

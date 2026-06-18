@@ -2,7 +2,7 @@
 //
 // Proves the configured MemWal relayer actually accepts a write (remember) and
 // returns it on a semantic read (recall) — i.e. the Walrus-backed memory pointer
-// store is live, not just config-parsed. Run from backend/:
+// store is live, not just config-parsed. Run from this repository root:
 //
 //   node --import tsx --env-file=.env scripts/memwal-smoke.ts
 //

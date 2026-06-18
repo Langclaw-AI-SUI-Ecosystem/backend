@@ -1,7 +1,7 @@
 // Recall-from-chain: rebuild an owner's private-memory pointer index purely from
 // Sui `MemoryRecorded` events, so memory is NOT trapped in a local on-disk index.
 //
-// The `memory_registry::record_memory` call (see move/langclaw_memory) emits a
+// The `memory_registry::record_memory` call in the move repository emits a
 // metadata-only `MemoryRecorded` event for every encrypted Walrus artifact. By
 // querying those events for an owner we can reconstruct the pointer set on any
 // device — the chain becomes the portable source of truth for *which* encrypted

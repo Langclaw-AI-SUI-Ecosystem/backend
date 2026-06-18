@@ -6,7 +6,7 @@
 // the Seal-encrypted, owner-gated path (see memory-workflow.ts); this script
 // exists purely so an auditor can read plaintext from a public Walrus blob.
 //
-//   cd backend && node --import tsx --env-file=.env scripts/walrus-public-demo.ts
+//   node --import tsx --env-file=.env scripts/walrus-public-demo.ts
 //
 // Prints the blob id, the public aggregator URL, and a store->read-back hash
 // check. Exits non-zero if the round trip is not byte-identical.

@@ -51,9 +51,11 @@ Live app: <https://langclaw-sui-walrus.vercel.app>
 Demo assets:
 
 - README: `README.md`
-- Detailed Walrus map: `WALRUS_TRACK.md`
-- Demo video script: `backend/docs/DEMO_SCRIPT.md`
-- Install and operator env: `backend/.env.mainnet.example`
+- Frontend repository: <https://github.com/Langclaw-AI-SUI-Ecosystem/frontend>
+- Move repository: <https://github.com/Langclaw-AI-SUI-Ecosystem/move>
+- Index repository: <https://github.com/Langclaw-AI-SUI-Ecosystem/langclaw-sui-walrus>
+- Demo video script: `docs/DEMO_SCRIPT.md`
+- Install and operator env: `.env.mainnet.example`
 - Deploy target: <https://langclaw-sui-walrus.vercel.app>
 - GitHub-ready test commands: `npm test`, `pnpm build`, and `sui move test`
 
@@ -89,7 +91,6 @@ Continue the liquid staking analysis. Compare the new evidence with the risks re
 If a reviewer only wants public proof and does not have the demo wallet, run:
 
 ```bash
-cd backend
 npm run verify:public-proof
 ```
 
@@ -121,7 +122,6 @@ PASS Sui transaction AtTXAV8bTRdUCEJjWuUQvhhdHzepksYKkkCMUqNKCEZ7
 Run this command without private keys:
 
 ```bash
-cd backend
 npm run verify:public-proof
 ```
 
@@ -132,7 +132,9 @@ transaction. For the private round-trip on a configured operator machine:
 npm run proof:seal
 npm run check:walrus-readiness:mainnet
 npm run check:eligibility
-npm run verify:sui-contracts
+
+# In https://github.com/Langclaw-AI-SUI-Ecosystem/move
+sui move test
 ```
 
 ## Evaluation focus

@@ -106,14 +106,12 @@ LANGCLAW_STRATEGY_EVIDENCE_BASE_URI=langclaw://strategy
 ## Operational Commands
 
 ```bash
-cd backend
 npm run check:eligibility
 npm run check:sui-proof
-npm run verify:sui-contracts
 ```
 
 ```bash
-cd move/langclaw_memory
+# In https://github.com/Langclaw-AI-SUI-Ecosystem/move
 sui move build
 sui move test
 ```

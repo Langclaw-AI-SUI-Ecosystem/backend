@@ -5,7 +5,7 @@
  *
  * This is what makes private memory portable across devices: the AES key is no
  * longer machine-local; any device holding the owner's SessionKey can decrypt via
- * the key server. Run from backend/ with env loaded:
+ * the key server. Run from this repository root with env loaded:
  *   node --import tsx --env-file=.env scripts/seal-roundtrip-proof.ts
  */
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";

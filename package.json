@@ -9,7 +9,6 @@
     "start": "node dist/server.js",
     "check:sui-proof": "node --import tsx src/scripts/check-sui-proof-readiness.ts",
     "check:eligibility": "node --import tsx src/scripts/check-sui-proof-readiness.ts --chain sui-mainnet",
-    "verify:sui-contracts": "cd ../move/langclaw_memory && sui move test",
     "dune:create-strategy-query": "node scripts/create-dune-strategy-query.mjs --write-env",
     "smoke:strategy-lab": "node scripts/smoke-strategy-lab.mjs",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",

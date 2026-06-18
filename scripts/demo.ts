@@ -6,7 +6,7 @@
 // private recall across sessions. Everything works offline via local fallbacks;
 // set WALRUS_*/SEAL_*/SUI_REGISTRY_*/MEMWAL_* env for the live mainnet path.
 //
-// Run from backend/: node --import tsx scripts/demo.ts
+// Run from this repository root: node --import tsx scripts/demo.ts
 import "../src/env";
 
 import { runPrivateMemoryWorkflow } from "../src/lib/memory-workflow";

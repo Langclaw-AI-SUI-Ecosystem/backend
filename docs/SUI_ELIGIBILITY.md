@@ -27,12 +27,13 @@ memory storage instead of falling back to a local envelope.
 ## Commands
 
 ```bash
-cd backend
 npm run check:eligibility
 npm run check:walrus-readiness
 npm run proof:seal
 npm run verify:public-proof
-npm run verify:sui-contracts
+
+# In https://github.com/Langclaw-AI-SUI-Ecosystem/move
+sui move test
 ```
 
 ## Required environment

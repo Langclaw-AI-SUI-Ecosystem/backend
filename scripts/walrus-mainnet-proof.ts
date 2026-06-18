@@ -4,7 +4,7 @@
  * stored blob from the public aggregator to confirm retrievability. Prints the
  * values used to fill the "Current Walrus Verification" table in README.md.
  *
- * Run from backend/:
+ * Run from this repository root:
  *   node --import tsx scripts/walrus-mainnet-proof.ts "Sui liquid staking risk"
  *
  * Override endpoints via WALRUS_PUBLISHER_URL / WALRUS_AGGREGATOR_URL.

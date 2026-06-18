@@ -2,7 +2,7 @@
  * Sui `MemoryRecorded` events — i.e. recall is portable across devices and no
  * longer trapped in the local on-disk index.
  *
- * Run from backend/ with env loaded so the registry package id is configured:
+ * Run from this repository root with env loaded so the registry package id is configured:
  *   node --import tsx --env-file=.env scripts/memory-recall-from-chain-proof.ts
  *   node --import tsx --env-file=.env scripts/memory-recall-from-chain-proof.ts 0x<owner>
  */

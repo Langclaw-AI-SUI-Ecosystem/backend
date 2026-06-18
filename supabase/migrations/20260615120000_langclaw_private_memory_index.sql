@@ -2,7 +2,7 @@
 --
 -- Stores ONLY metadata pointers to encrypted Walrus memory artifacts — never
 -- decrypted private content. Mirrors MemoryIndexRecord in
--- backend/src/lib/memory-types.ts and the row mapping in memory-index.ts.
+-- src/lib/memory-types.ts and the row mapping in memory-index.ts.
 
 create table if not exists public.langclaw_private_memory_index (
   id text primary key,

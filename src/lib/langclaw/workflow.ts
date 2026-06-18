@@ -169,7 +169,7 @@ const workflowSteps: WorkflowStepDefinition[] = [
   {
     stepId: "chain-proof",
     agent: "Sui Decision Anchor",
-    skill: "move/langclaw_memory/sources/decision_registry.move",
+    skill: "move repository: sources/decision_registry.move",
     pendingSummary: "Waiting to record the agent decision proof on Sui.",
   },
 ];
@@ -818,7 +818,7 @@ function buildTraceSteps(
     }),
     withTraceOverride("chain-proof", traceOverrides, {
       agent: "Sui Decision Anchor",
-      skill: "move/langclaw_memory/sources/decision_registry.move",
+      skill: "move repository: sources/decision_registry.move",
       status: "complete",
       summary:
         "Prepared the agent decision hash. Set SUI_CHAIN_ENABLED=true and SUI_LANGCLAW_REGISTRY_PACKAGE_ID to record it.",

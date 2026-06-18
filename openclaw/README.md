@@ -103,7 +103,7 @@ providers as source gaps.
 
 ## Operational Checks
 
-From `backend/`:
+From this repository root:
 
 ```bash
 npm run check:sui-proof

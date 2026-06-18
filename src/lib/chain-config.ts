@@ -52,7 +52,7 @@ export const productChains: Record<ProductChainId, ProductChainConfig> = {
     },
     // Sui has no EVM-style numeric chain id. We keep a stable numeric tag so the
     // (ported) usage ledger / UI selectors that key on a number keep working.
-    // Matches the frontend `frontend/lib/chains.ts` tags (testnet 1 / mainnet 0).
+    // Matches the frontend repository `lib/chains.ts` tags (testnet 1 / mainnet 0).
     chainId: 1,
     dexScreenerId: "sui",
     envPrefix: "SUI",

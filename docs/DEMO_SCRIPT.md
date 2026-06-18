@@ -8,11 +8,10 @@ Target length: 3 to 4 minutes.
 - Turn on Developer Mode for that account if the demo should avoid prepaid SUI
   credit friction. Developer Mode skips reservations and returns zero-cost
   receipts.
-- On the backend operator machine, copy `backend/.env.mainnet.example` to
-  `backend/.env`, fill the secret placeholders, then run:
+- On the backend operator machine, copy `.env.mainnet.example` to `.env`, fill
+  the secret placeholders, then run:
 
 ```bash
-cd backend
 npm run check:walrus-readiness:mainnet
 npm run verify:public-proof
 ```
@@ -64,7 +63,6 @@ content hash, owner policy, and transaction.
 Run:
 
 ```bash
-cd backend
 npm run verify:public-proof
 ```
 
@@ -103,7 +101,6 @@ Walrus is the memory layer, Seal controls private recall, and Sui records the pr
 ## Recording checklist
 
 ```bash
-cd backend
 npm run proof:seal
 npm run check:walrus-readiness:mainnet
 npm run check:eligibility
@@ -111,11 +108,11 @@ npm run verify:public-proof
 npm test
 npm run build
 
-cd ../frontend
+# In https://github.com/Langclaw-AI-SUI-Ecosystem/frontend
 node --test tests/sui-wallet.test.mjs
 pnpm lint
 pnpm build
 
-cd ../move/langclaw_memory
+# In https://github.com/Langclaw-AI-SUI-Ecosystem/move
 sui move test
 ```

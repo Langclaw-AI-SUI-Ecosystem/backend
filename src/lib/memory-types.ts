@@ -1,6 +1,4 @@
-// Shared types for the Sui + Walrus private-memory layer.
-//
-// Ported from the sibling `langclaw-sui-walrus` project but decoupled from its
+// Shared memory types for the Sui + Walrus private-memory layer, decoupled from any
 // chain-data/suiResearch payloads: this project carries its own richer research
 // result inside `PrivateMemoryArtifact.research` (typed `unknown` to avoid an
 // import cycle with the OpenClaw research engine in `langclaw/types.ts`).

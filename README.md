@@ -7,6 +7,12 @@ billing, automation, strategy backtests, and on-chain proof records.
 The product, billing, and proof surface targets Sui mainnet. Non-Sui chains are
 available only as optional analysis targets in the on-chain tools layer.
 
+Related repositories:
+
+- Frontend: https://github.com/Langclaw-AI-SUI-Ecosystem/frontend
+- Move package: https://github.com/Langclaw-AI-SUI-Ecosystem/move
+- Index repository: https://github.com/Langclaw-AI-SUI-Ecosystem/langclaw-sui-walrus
+
 **Default product chain:** Sui mainnet
 **Default billing asset:** SUI
 **Main proof contract:** Sui `LangclawRegistry`
