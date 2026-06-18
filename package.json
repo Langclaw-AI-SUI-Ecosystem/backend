@@ -8,6 +8,8 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "check:sui-proof": "node --import tsx src/scripts/check-sui-proof-readiness.ts",
+    "check:eligibility": "node --import tsx src/scripts/check-sui-proof-readiness.ts --chain sui-mainnet",
+    "verify:sui-contracts": "cd ../move/langclaw_memory && sui move test",
     "dune:create-strategy-query": "node scripts/create-dune-strategy-query.mjs --write-env",
     "smoke:strategy-lab": "node scripts/smoke-strategy-lab.mjs",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
@@ -15,6 +17,9 @@
     "typecheck": "tsc --noEmit",
     "demo": "node --import tsx scripts/demo.ts",
     "check:walrus-readiness": "node --import tsx scripts/check-walrus-readiness.ts",
+    "proof:walrus-mainnet": "node --import tsx --env-file=.env scripts/walrus-mainnet-proof.ts",
+    "proof:seal": "SEAL_STRICT_MODE=true node --import tsx --env-file=.env scripts/seal-roundtrip-proof.ts",
+    "verify:public-proof": "node --import tsx scripts/verify-public-proof.ts",
     "smoke:memwal": "node --import tsx --env-file=.env scripts/memwal-smoke.ts",
     "demo:walrus-public": "node --import tsx --env-file=.env scripts/walrus-public-demo.ts",
     "smoke:deposit-dryrun": "node --import tsx scripts/usage-deposit-dryrun.ts"

@@ -13,7 +13,7 @@ import {
   readAlphaSignalFromPayload,
   withAlphaSignalNotification,
 } from "../langclaw/alpha-quality";
-import { runLangclawWorkflow } from "../langclaw/workflow";
+import { runPrivateMemoryWorkflow } from "../memory-workflow";
 import type { ResearchReport, ZeroGProof } from "../langclaw/types";
 import type { OnChainToolFinalPayload } from "../onchain-tools/types";
 import {
@@ -892,7 +892,9 @@ async function runTaskWithRetries(
         );
       }
 
-      const payload = await runLangclawWorkflow(prompt, {
+      const payload = await runPrivateMemoryWorkflow({
+        topic: prompt,
+        ownerAddress: context.walletUser.walletAddress,
         requestedModel: task.model ?? undefined,
       });
       const proof = payload.proof ?? payload.zeroG;

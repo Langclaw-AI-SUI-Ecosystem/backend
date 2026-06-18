@@ -1,146 +1,102 @@
-# Langclaw Sui Alpha Demo Script
+# Langclaw Walrus Demo Script
 
-Use this script for a 3 to 4 minute Sui AI Alpha demo video. Keep the narration
-analysis-first and avoid live-trading claims.
+Target length: 3 to 4 minutes.
 
-## 0:00 to 0:20
-
-Say:
-
-```text
-Langclaw is a Sui AI Alpha & Data agent. It tracks smart-money flow, detects liquidity anomalies, reads on-chain protocol momentum, and records source-backed agent decisions on Sui.
-```
-
-Show:
-
-- Langclaw home or chat screen.
-- Sui / AI Alpha / Evidence-backed positioning.
-- Wallet connection.
-- Submission summary or repo overview.
-
-## 0:20 to 0:50
+## 0:00 to 0:25
 
 Say:
 
 ```text
-I enter a Sui alpha prompt. Langclaw routes it through planner, source, trend, evidence, verifier, and final conclusion steps while preserving provider trace and source gaps.
+Langclaw gives AI agents private memory. It encrypts research with Seal, stores the ciphertext on Walrus, and anchors the memory hash on Sui mainnet.
 ```
 
-Show:
+Show the home page, connect a Sui wallet, then open Research.
 
-- Suggested prompt: `Find smart-money accumulation on Sui`.
-- Suggested prompt: `Detect liquidity anomalies on Sui DEX pairs`.
-- Suggested prompt: `Rank Sui protocols by TVL and yield momentum`.
-- Sui Intelligence / research mode.
-- Wallet and Telegram linked state.
+## 0:25 to 1:15, first run
 
-## 0:50 to 1:25
+Use this prompt:
+
+```text
+Analyze the main risks and growth signals for Sui liquid staking protocols. Save the evidence for later recall.
+```
+
+Show the staged research steps and final answer. Keep provider gaps visible.
 
 Say:
 
 ```text
-The tool layer prioritizes Sui data: Surf smart-money research, Dune rows, DEX Screener Sui pairs, DeFiLlama protocol and yield data, and explorer-backed proof checks. Provider failures stay visible as source gaps instead of being hidden.
+This result is now encrypted before storage. The plaintext never goes to Walrus.
 ```
 
-Show:
+Open the proof panel. Show:
 
-- Sui chain selected.
-- Provider trace with status and scope.
-- Tool results with source URLs or fetched records.
-- Source gap messages if optional providers are disabled or unavailable.
-- `signals.social`, `signals.onchain`, and `signals.combined` style output.
+- `sealMode = seal-sdk-configured`
+- Walrus storage and retrieval status
+- hash verification
+- blob ID and aggregator link
+- Sui transaction link
 
-## 1:25 to 2:10
+## 1:15 to 2:05, independent proof
 
-Say:
+Open the Walrus blob link and Sui transaction in separate tabs. Explain that the
+public blob contains ciphertext. Then show the Memory page with the same blob,
+content hash, owner policy, and transaction.
 
-```text
-The answer is analysis-only, not a trading execution claim. It gives the signal, evidence, confidence, false-positive checks, risk note, and recommended watch action.
-```
-
-Show:
-
-- Final Sui Alpha brief.
-- Signal, evidence, confidence, risk note, and recommended watch action.
-- Structured report cards or tables when row-level data exists.
-- Candidate wallet table or liquidity anomaly table.
-- Data source diagnostics and checks unavailable.
-- Add the strongest result to Alpha Watchlist.
-
-## 2:10 to 2:35
-
-Say:
-
-```text
-Strategy Lab is a supporting module. It uses Dune historical data to backtest a Sui Liquidity Momentum Strategy, then opens a paper trade proof without touching live funds.
-```
-
-Show:
-
-- Strategy Lab at `/strategy`.
-- Sui pair scan.
-- Dune query ID field when needed.
-- Run Backtest.
-- Equity curve and trade table.
-- Open Paper Trade.
-- Proof status: `prepared`, `anchored`, or `failed`.
-- Say clearly that this is not live arbitrage, live swapping, or market-making.
-
-## 2:35 to 3:15
-
-Say:
-
-```text
-For transparency, Langclaw builds an evidence bundle and records the agent decision hash through the LangclawRegistry Move module on Sui. The record includes the agent ID, run ID, signal type, evidence URI, recorder, and timestamp.
-```
-
-Show:
-
-- Agent Decision Proof panel.
-- Proof Center at `/proofs`.
-- `decisionHash`.
-- `agentId = 133`.
-- Latest demo decision `#1`.
-- Agent ID `133`.
-- Sui proof tx from the current mainnet Proof Center record.
-- `signalType = smart-money` or `liquidity-anomaly`.
-- Strategy Proofs section for `LangclawTradingJournal`.
-- Telegram settings as the alert channel for monitor updates.
-
-Use the current Proof Center records from the configured Sui registry during the
-live demo.
-
-## 3:15 to 3:45
-
-Say:
-
-```text
-Langclaw fits AI Alpha & Data first: Sui on-chain data is the core source, the output is explainable with confidence and limits, false positives are handled conservatively, and every strong agent decision can be verified on Sui.
-```
-
-Show:
-
-- Public GitHub organization or repos.
-- Demo URL.
-- Sui package and object explorer pages.
-- Local verification command output.
-
-## Pre-Recording Checklist
+Run:
 
 ```bash
 cd backend
-npm run check:sui-proof
+npm run verify:public-proof
+```
+
+Say:
+
+```text
+This command uses no private key. It independently checks Walrus, the Seal service identity, and the Sui transaction.
+```
+
+## 2:05 to 3:00, second run
+
+Use this follow-up prompt from the same wallet:
+
+```text
+Continue the liquid staking analysis. Compare the new evidence with the risks remembered from my previous run.
+```
+
+Show recalled memory IDs and reused handoff blob IDs.
+
+Say:
+
+```text
+Langclaw fetched the prior encrypted blob from Walrus, passed the owner-only Seal policy, decrypted it, and used it as context for this new run.
+```
+
+## 3:00 to 3:35, architecture and close
+
+Show the live package, KeyServer object, and Move modules.
+
+Say:
+
+```text
+Walrus is the memory layer, Seal controls private recall, and Sui records the proof. Chat, discover, and automation all use this same path. Langclaw turns isolated AI runs into a portable, verifiable memory loop.
+```
+
+## Recording checklist
+
+```bash
+cd backend
+npm run proof:seal
+npm run check:walrus-readiness
 npm run check:eligibility
-```
+npm run verify:public-proof
+npm test
+npm run build
 
-```bash
-cd frontend
-pnpm typecheck
+cd ../frontend
+node --test tests/sui-wallet.test.mjs
+pnpm lint
 pnpm build
-```
 
-```bash
-cd move
-sui move build
+cd ../move/langclaw_memory
 sui move test
 ```

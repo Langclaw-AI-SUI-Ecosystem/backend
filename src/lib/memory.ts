@@ -4,7 +4,9 @@ import {
   type AccountAuthInput,
   type AuthenticatedAccount,
 } from "./server/account-auth";
+import { createMemoryIndex } from "./memory-index";
 import type { Database, Json } from "./supabase/database.types";
+import { getWalrusBlobUrl } from "./walrus";
 
 export type MemoryStatus = "active" | "disabled";
 export type MemoryCategory =
@@ -47,6 +49,22 @@ export type MemoryDashboard = {
   memories: MemoryItem[];
   settings: MemorySettings;
   stats: MemoryStats;
+  verifiableMemories: VerifiableMemoryItem[];
+};
+
+export type VerifiableMemoryItem = {
+  id: string;
+  runId: string;
+  topic: string;
+  contentHash: string;
+  walrusBlobId: string;
+  walrusBlobUrl?: string;
+  walrusObjectId: string;
+  sealPolicyId: string;
+  suiTxDigest?: string;
+  suiTxUrl?: string;
+  tags: string[];
+  createdAt: string;
 };
 
 export type MemoryInput = {
@@ -115,9 +133,10 @@ export async function readMemoryDashboard(
   authInput: AccountAuthInput
 ): Promise<MemoryDashboard> {
   const context = await requireMemoryContext(authInput);
-  const [memories, settings] = await Promise.all([
+  const [memories, settings, verifiableMemories] = await Promise.all([
     readMemoriesForContext(context),
     readMemorySettingsForContext(context),
+    readVerifiableMemories(context.walletUser.walletAddress),
   ]);
 
   return {
@@ -125,7 +144,34 @@ export async function readMemoryDashboard(
     memories,
     settings,
     stats: buildMemoryStats(memories),
+    verifiableMemories,
   };
+}
+
+async function readVerifiableMemories(
+  ownerAddress: string
+): Promise<VerifiableMemoryItem[]> {
+  const explorerBase = (
+    process.env.SUI_CHAIN_EXPLORER_URL?.trim() || "https://suivision.xyz"
+  ).replace(/\/+$/, "");
+
+  const records = await createMemoryIndex().listForOwner(ownerAddress);
+  return records.map((record) => ({
+    id: record.id,
+    runId: record.runId,
+    topic: record.topic,
+    contentHash: record.contentHash,
+    walrusBlobId: record.walrusBlobId,
+    walrusBlobUrl: getWalrusBlobUrl(record.walrusBlobId),
+    walrusObjectId: record.walrusObjectId,
+    sealPolicyId: record.sealPolicyId,
+    suiTxDigest: record.suiTxDigest,
+    suiTxUrl: record.suiTxDigest
+      ? `${explorerBase}/txblock/${record.suiTxDigest}`
+      : undefined,
+    tags: record.tags,
+    createdAt: record.createdAt,
+  }));
 }
 
 export async function createMemory(

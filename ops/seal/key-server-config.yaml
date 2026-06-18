@@ -1,0 +1,7 @@
+network: Mainnet
+node_url: https://fullnode.mainnet.sui.io:443
+server_mode: !Open
+  key_server_object_id: "0x86b608dcb3fcb9c629cfe6d865681977d1decb219a2eb98eb6058b87377feaf3"
+metrics_host_port: 9184
+ts_sdk_version_requirement: ">=1.0.0"
+session_key_ttl_max: "30m"

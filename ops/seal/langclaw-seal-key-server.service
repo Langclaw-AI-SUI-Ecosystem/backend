@@ -1,0 +1,21 @@
+[Unit]
+Description=Langclaw Seal independent key server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/seal-key-server
+Environment=CONFIG_PATH=/home/ubuntu/seal-key-server/key-server-config.yaml
+EnvironmentFile=/home/ubuntu/seal-key-server/master-key.env
+ExecStart=/home/ubuntu/seal-key-server/bin/key-server
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/seal-key-server
+
+[Install]
+WantedBy=multi-user.target

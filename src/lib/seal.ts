@@ -18,9 +18,17 @@ export type SealIntegrationStatus = {
   keyServerConfigSource: "json" | "object-ids" | "empty";
   keyServerAuthConfigured: boolean;
   keyServerAggregatorConfigured: boolean;
+  strictMode: boolean;
   network: SealNetwork;
   missing: string[];
   errors: string[];
+};
+
+export type SealRuntimeProbe = {
+  ready: boolean;
+  mode: SealMode;
+  keyServerCount: number;
+  reason?: string;
 };
 
 type SealKeyServerConfig = {
@@ -78,10 +86,54 @@ export function getSealIntegrationStatus(): SealIntegrationStatus {
     keyServerAggregatorConfigured: config.keyServerConfigs.some(
       (serverConfig) => serverConfig.aggregatorUrl !== undefined
     ),
+    strictMode: isSealStrictMode(config),
     network: config.network,
     missing,
     errors: config.errors,
   };
+}
+
+/**
+ * Prove that the configured Seal servers are reachable and match their on-chain
+ * objects. This performs public-key encryption only. It does not request a
+ * decryption share or write any chain state.
+ */
+export async function probeSealKeyServers(): Promise<SealRuntimeProbe> {
+  const config = readSealConfig();
+  const status = getSealIntegrationStatus();
+
+  if (status.mode !== "seal-sdk-configured") {
+    return {
+      ready: false,
+      mode: status.mode,
+      keyServerCount: status.keyServerCount,
+      reason: status.missing.join(", ") || "Seal key-server mode is not configured.",
+    };
+  }
+
+  try {
+    const envelope = await withSealTimeout(
+      encryptWithSeal(
+        Buffer.from("langclaw-seal-runtime-readiness", "utf8"),
+        `0x${"00".repeat(32)}`,
+        config
+      ),
+      getSealEncryptTimeoutMs()
+    );
+
+    return {
+      ready: envelope.sealMode === "seal-sdk-configured",
+      mode: envelope.sealMode,
+      keyServerCount: envelope.sealKeyServerCount ?? 0,
+    };
+  } catch (error) {
+    return {
+      ready: false,
+      mode: "seal-sdk-configured",
+      keyServerCount: status.keyServerCount,
+      reason: error instanceof Error ? error.message : "Seal runtime probe failed.",
+    };
+  }
 }
 
 export async function encryptPrivateMemory(
@@ -98,13 +150,20 @@ export async function encryptPrivateMemory(
         getSealEncryptTimeoutMs()
       );
     } catch (error) {
-      if (readBoolean(process.env.SEAL_STRICT_MODE, false)) {
+      if (isSealStrictMode(config)) {
         throw error;
       }
     }
   }
 
   return encryptWithLocalEnvelope(plaintext, ownerAddress);
+}
+
+function isSealStrictMode(config: SealConfig) {
+  return readBoolean(
+    process.env.SEAL_STRICT_MODE,
+    !config.mockMode && config.network === "mainnet"
+  );
 }
 
 export async function decryptPrivateMemory(

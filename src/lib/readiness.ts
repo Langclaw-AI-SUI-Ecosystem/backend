@@ -5,7 +5,7 @@
 
 import { createMemoryIndex, getMemoryIndexStatus } from "./memory-index";
 import { getMemWalIntegrationStatus } from "./memwal";
-import { getSealIntegrationStatus } from "./seal";
+import { getSealIntegrationStatus, probeSealKeyServers } from "./seal";
 import { getSuiRegistryIntegrationStatus } from "./sui-registry";
 import type { MemoryIndexRecord } from "./memory-types";
 import { createWalrusClient, getWalrusStorageStatus } from "./walrus";
@@ -45,6 +45,22 @@ export async function getWalrusReadiness(
   const walrus = createWalrusClient();
   const integrations = getIntegrationOverview();
   const checks = buildStaticChecks(integrations);
+
+  if (integrations.seal.mode === "seal-sdk-configured") {
+    const sealProbe = await probeSealKeyServers();
+    const sealCheck = checks.find((check) => check.name === "sealPrivacy");
+
+    if (sealCheck) {
+      sealCheck.status = sealProbe.ready ? "ready" : "failed";
+      sealCheck.message = sealProbe.ready
+        ? "Seal key servers passed a live SDK encryption probe."
+        : `Seal key-server runtime probe failed: ${sealProbe.reason ?? "unknown error"}`;
+      sealCheck.details = {
+        ...integrations.seal,
+        runtimeProbe: sealProbe,
+      };
+    }
+  }
 
   let latest: MemoryIndexRecord | undefined;
 
@@ -166,7 +182,7 @@ function buildStaticChecks(
         : "missing_config",
       message:
         integrations.seal.mode === "seal-sdk-configured"
-          ? "Seal SDK key-server config is ready."
+          ? "Seal key-server config is present; runtime probe pending."
           : "Seal uses local envelope mode (owner-gated AES).",
       details: integrations.seal,
     },

@@ -25,6 +25,7 @@ function forceLocalEnvelopeMode() {
   delete process.env.SEAL_KEY_SERVER_API_KEY;
   delete process.env.SEAL_KEY_SERVER_AGGREGATOR_URL;
   delete process.env.SEAL_KEY_SERVER_CONFIGS_JSON;
+  delete process.env.SEAL_STRICT_MODE;
 }
 
 function makeArtifact(): PrivateMemoryArtifact {
@@ -72,6 +73,7 @@ test("status enables real Seal mode for a configured Sui mainnet provider", () =
   assert.equal(status.keyServerCount, 1);
   assert.equal(status.keyServerConfigSource, "object-ids");
   assert.equal(status.keyServerAuthConfigured, true);
+  assert.equal(status.strictMode, true);
 });
 
 test("status reports JSON key-server config errors without enabling real Seal", () => {

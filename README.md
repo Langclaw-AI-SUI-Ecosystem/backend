@@ -265,23 +265,21 @@ Mainnet config:
 
 ```bash
 WALRUS_AGGREGATOR_URL=https://aggregator.walrus-mainnet.walrus.space
-WALRUS_PUBLISHER_URL=
+WALRUS_PUBLISHER_URL=http://127.0.0.1:31415
 WALRUS_EPOCHS=5
 ```
 
-Walrus mainnet does not expose a public unauthenticated publisher endpoint in
-the official network reference. Set `WALRUS_PUBLISHER_URL` to your own
-authenticated publisher or upload relay before expecting public blob writes.
-With publisher unset, the backend uses the local fallback and reports
-`walrusStorageMode: local` honestly.
+The production VPS runs its own mainnet publisher daemon. Keep it bound to
+localhost and point the backend at that private endpoint. With publisher unset,
+the backend uses the local fallback and reports `walrusStorageMode: local`.
 
 | Layer | Mainnet status |
 | --- | --- |
 | Walrus aggregator | configured: `https://aggregator.walrus-mainnet.walrus.space` |
-| Walrus publisher | pending authenticated publisher or upload relay |
-| Seal mode | `local-envelope` unless `SEAL_MOCK_MODE=false`, the mainnet package id, and a mainnet key server config are set |
-| MemWal | optional, uses `https://relayer.memory.walrus.xyz` when configured |
-| Sui memory anchor | pending mainnet package publish and `SUI_REGISTRY_PACKAGE_ID` |
+| Walrus publisher | live on the production VPS through a localhost-only daemon |
+| Seal mode | `seal-sdk-configured`, strict mode, mainnet round-trip verified |
+| MemWal | live through `https://relayer.memory.walrus.xyz` |
+| Sui memory anchor | live through package `0x7f3578ebe174b0343cd96391b2a1c75d5db4ad82c793650b3950bdb5634192e5` |
 
 > Note: a blob URL is published **only** in `http` mode; in `local` fallback the
 > proof honestly reports `walrusStorageMode: local` and exposes no public URL.
@@ -327,9 +325,8 @@ SUI_NETWORK=mainnet
 SUI_RPC_URL=https://fullnode.mainnet.sui.io:443
 SEAL_MOCK_MODE=false
 SEAL_PACKAGE_ID=0x7f3578ebe174b0343cd96391b2a1c75d5db4ad82c793650b3950bdb5634192e5
-SEAL_KEY_SERVER_OBJECT_IDS=<provider-issued-mainnet-key-server-object-id>
-SEAL_KEY_SERVER_API_KEY_NAME=<provider-api-key-header-name>
-SEAL_KEY_SERVER_API_KEY=<provider-api-key>
+SEAL_KEY_SERVER_OBJECT_IDS=0x86b608dcb3fcb9c629cfe6d865681977d1decb219a2eb98eb6058b87377feaf3
+SEAL_STRICT_MODE=true
 SEAL_THRESHOLD=1
 ```
 
@@ -347,10 +344,9 @@ JSON form:
 SEAL_KEY_SERVER_CONFIGS_JSON='[{"objectId":"0x...","weight":1,"apiKeyName":"x-api-key","apiKey":"..."}]'
 ```
 
-The public decentralized committee key server for mainnet is not self-serve yet.
-Use a verified independent mainnet provider such as Enoki, Ruby Nodes,
-NodeInfra, Overclock, Studio Mirai, H2O Nodes, Triton One, or Natsai, or run a
-self-host independent server when you can keep the key and URL stable.
+The configured KeyServer is a self-hosted Open mode server. Its service URL is
+registered on-chain and served through HTTPS. The master key stays outside the
+repository.
 
 > **Upgrade gotcha (important).** Both Seal (`SEAL_PACKAGE_ID`) and the
 > recall-from-chain event query (`SUI_REGISTRY_EVENT_PACKAGE_ID`) must use the

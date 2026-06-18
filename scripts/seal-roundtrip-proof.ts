@@ -90,6 +90,12 @@ async function main() {
   console.log("  identity (id bytes):", envelope.sealIdentity);
   console.log("  encryptedObject len:", envelope.sealEncryptedObject?.length);
 
+  if (envelope.sealMode !== "seal-sdk-configured" || !envelope.sealEncryptedObject) {
+    throw new Error(
+      `Seal encryption fell back to ${envelope.sealMode}; refusing to report a real Seal proof.`
+    );
+  }
+
   // 2. Owner-signed SessionKey (what a real wallet exports from the frontend).
   const [{ SessionKey }, { SuiJsonRpcClient }] = await Promise.all([
     import("@mysten/seal"),

@@ -6,7 +6,7 @@ targets.
 
 ## Module Scope
 
-The Sui package publishes four modules. The package ID and the Usage Vault shared
+The Sui package publishes five modules. The package ID and the Usage Vault shared
 object are listed under Live Sui Deployments.
 
 | Module | Responsibility | Not Responsible For |
@@ -15,6 +15,7 @@ object are listed under Live Sui Deployments.
 | `decision_registry` | Record agent decisions with `agentId`, `runId`, `decisionHash`, `evidenceUri`, `signalType`, recorder, and timestamp | Usage deposits, withdrawals, strategy PnL |
 | `trading_journal` | Record Strategy Lab backtests and paper trades with strategy metadata, deterministic hashes, PnL bps, status, recorder, and timestamp | Live trading, swaps, custody, usage balance |
 | `memory_registry` | Anchor agent memory references on-chain | Usage billing, decision proof, strategy PnL |
+| `access_policy` | Enforce owner-only Seal key release | Plaintext storage, account sessions, usage billing |
 
 OpenAI is the inference provider. User SUI deposits are app usage credits, not
 OpenAI account funding.
@@ -76,11 +77,8 @@ LANGCLAW_STRATEGY_EVIDENCE_BASE_URI=langclaw://strategy
 3. Backend verifies the deposit event through the Sui RPC.
 4. Backend credits the internal Supabase usage ledger.
 5. Research/chat usage is deducted from the internal balance.
-6. Withdrawal requests require backend authorization through the vault's
-   authorize-withdrawal entry function (payer, amount, withdrawal id).
-7. User withdraws authorized balance through the vault's withdraw entry function.
-
-The vault can be paused by the AdminCap holder.
+6. The AdminCap holder can withdraw an operator payout to a named recipient.
+7. Every withdrawal emits a `Withdrawn` event with the remaining balance.
 
 ## Registry Flow
 
@@ -115,7 +113,7 @@ npm run verify:sui-contracts
 ```
 
 ```bash
-cd contracts
+cd move/langclaw_memory
 sui move build
 sui move test
 ```
