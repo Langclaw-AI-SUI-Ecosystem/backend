@@ -3,14 +3,18 @@ import { readProductChainId } from "../lib/chain-config";
 import {
   buildUsageQuote,
   buildWithdrawRequestForChain,
+  listUsageWithdrawalRequestsForChain,
   readUsageBalance,
   readUsageVaultInfo,
+  requestUsageWithdrawalForChain,
   usageErrorResponse,
   verifyUsageDeposit,
 } from "../lib/usage";
 
 type UsageRequestBody = {
+  amountMist?: unknown;
   chain?: unknown;
+  recipient?: unknown;
   wallet?: WalletAuthInput;
   txHash?: unknown;
   reference?: unknown;
@@ -106,7 +110,42 @@ export async function handleUsageWithdrawRequest(request: Request) {
   }
 
   try {
+    if (body.amountMist !== undefined) {
+      const payload = await requestUsageWithdrawalForChain({
+        amountMist: body.amountMist,
+        chain: readProductChainId(body.chain),
+        recipient: body.recipient,
+        wallet: body.wallet ?? {},
+      });
+
+      return Response.json(payload);
+    }
+
     const payload = await buildWithdrawRequestForChain(
+      body.wallet ?? {},
+      readProductChainId(body.chain)
+    );
+
+    return Response.json(payload);
+  } catch (error) {
+    return usageErrorResponse(error);
+  }
+}
+
+export async function handleUsageWithdrawals(request: Request) {
+  let body: UsageRequestBody;
+
+  try {
+    body = (await request.json()) as UsageRequestBody;
+  } catch {
+    return Response.json(
+      { error: "Request body must be valid JSON." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const payload = await listUsageWithdrawalRequestsForChain(
       body.wallet ?? {},
       readProductChainId(body.chain)
     );

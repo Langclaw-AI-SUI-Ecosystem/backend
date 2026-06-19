@@ -305,9 +305,43 @@ Request:
 
 ### `POST /api/usage/withdraw/request`
 
-Returns withdrawal instructions and current withdrawable balance. On-chain
-withdrawal still requires the user to send the vault transaction from their
-wallet after the backend authorizes it.
+Without `amountMist`, returns vault withdrawal metadata and current withdrawable
+balance. With `amountMist`, atomically debits available balance and creates a
+pending withdrawal request for the vault admin.
+
+Request:
+
+```json
+{
+  "chain": "sui-mainnet",
+  "amountMist": "100000000",
+  "recipient": "0x...",
+  "wallet": {
+    "address": "0x...",
+    "sessionToken": "..."
+  }
+}
+```
+
+### `POST /api/usage/withdrawals`
+
+Lists the connected wallet's recent withdrawal requests.
+
+### `POST /api/admin/usage-vault/withdrawals/pending`
+
+Lists pending withdrawal requests. The connected wallet must own the configured
+Usage Vault AdminCap.
+
+### `POST /api/admin/usage-vault/withdrawals/verify`
+
+Verifies a successful `usage_vault::withdraw` transaction and records the admin
+withdrawal audit. If `requestId` is supplied, the matching pending withdrawal
+request is marked `completed`.
+
+### `POST /api/admin/usage-vault/withdrawals/reject`
+
+Rejects a pending withdrawal request and refunds its amount to the user's
+available usage balance.
 
 ## Automation
 

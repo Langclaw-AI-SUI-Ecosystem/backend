@@ -73,7 +73,8 @@ Routes are registered in [`src/server.ts`](src/server.ts).
 | API keys | `POST /api/api-keys` |
 | Memory | `POST /api/memory`, `POST /api/memory/settings` |
 | Watchlist | `POST /api/watchlist` |
-| Usage | `POST /api/usage/balance`, `POST /api/usage/quote`, `POST /api/usage/vault`, `POST /api/usage/deposit/verify`, `POST /api/usage/withdraw/request` |
+| Usage | `POST /api/usage/balance`, `POST /api/usage/quote`, `POST /api/usage/vault`, `POST /api/usage/deposit/verify`, `POST /api/usage/withdraw/request`, `POST /api/usage/withdrawals` |
+| Usage admin | `POST /api/admin/usage-vault/status`, `POST /api/admin/usage-vault/withdrawals/pending`, `POST /api/admin/usage-vault/withdrawals/reject`, `POST /api/admin/usage-vault/withdrawals/verify` |
 | Automation | `POST /api/automation/tasks`, `POST /api/automation/runs`, `POST /api/automation/settings`, `POST /api/automation/notifications`, `POST /api/automation/telegram/webhook`, `POST /api/automation/webhooks/:slug` |
 | Proof | `POST /api/proofs/decisions`, `POST /api/proofs/readiness` |
 | Strategy Lab | `POST /api/strategy/scan-pairs`, `POST /api/strategy/backtest`, `POST /api/strategy/paper-trade`, `POST /api/strategy/runs` |
@@ -209,8 +210,10 @@ Usage is internal ledger-based billing:
 4. Research/chat agent requests reserve balance before work starts.
 5. Successful runs settle cost from model/provider usage metadata.
 6. Failed runs refund the reservation where possible.
-7. `POST /api/usage/withdraw/request` returns withdrawal authorization details
-   for available balance.
+7. `POST /api/usage/withdraw/request` with `amountMist` debits available
+   balance into a pending withdrawal request.
+8. The AdminCap holder executes `usage_vault::withdraw`, then
+   `POST /api/admin/usage-vault/withdrawals/verify` marks the request complete.
 
 Sui transactions are paid in native SUI gas; the agent recorder wallet signs
 proof and journal transactions on Sui mainnet.

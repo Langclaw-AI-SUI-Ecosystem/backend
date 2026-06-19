@@ -63,6 +63,35 @@ type UsageAccountRow = {
 
 type UsageRpcRow = Record<string, unknown>;
 
+type UntypedUsageRpcClient = {
+  rpc: (
+    functionName: string,
+    args: Record<string, unknown>
+  ) => Promise<{
+    data: unknown;
+    error: { code?: string; message: string } | null;
+  }>;
+};
+
+type UsageWithdrawalRequestRow = {
+  amount_neuron: string | number;
+  balance_after_neuron: string | number;
+  balance_before_neuron: string | number;
+  chain_id?: string | number;
+  chain_slug?: string;
+  completed_at?: string | null;
+  created_at?: string;
+  id: string;
+  native_symbol?: string;
+  recipient_address: string;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
+  status: "pending" | "completed" | "rejected";
+  tx_hash?: string | null;
+  wallet_address: string;
+  wallet_user_id?: string;
+};
+
 type UsageVaultAdminContext = {
   adminCapObjectId: string;
   adminCapOwner?: string;
@@ -73,6 +102,10 @@ type UsageVaultAdminContext = {
   packageId: string;
   vaultObjectId: string;
 };
+
+function untypedUsageRpc(client: unknown) {
+  return client as UntypedUsageRpcClient;
+}
 
 export type UsageQuoteInput = {
   chain?: ProductChainId;
@@ -148,9 +181,22 @@ function usageDatabaseErrorMessage(message?: string) {
   if (
     raw?.includes("langclaw_usage_accounts_chain_slug_check") ||
     raw?.includes("langclaw_usage_accounts_native_symbol_check") ||
-    raw?.includes("langclaw_usage_deposits_tx_hash_format")
+    raw?.includes("langclaw_usage_deposits_tx_hash_format") ||
+    raw?.includes("langclaw_usage_withdrawal_requests")
   ) {
     return "Usage database is not migrated for Sui credits. Apply the Sui usage migrations, then retry crediting the same transaction.";
+  }
+
+  if (raw?.includes("insufficient_withdrawable_balance")) {
+    return "Insufficient available SUI balance to withdraw.";
+  }
+
+  if (raw?.includes("withdrawal_request_not_found")) {
+    return "Withdrawal request was not found.";
+  }
+
+  if (raw?.includes("withdrawal_request_not_pending")) {
+    return "Withdrawal request is no longer pending.";
   }
 
   return raw || "Usage billing failed.";
@@ -771,12 +817,14 @@ export async function verifyUsageVaultWithdrawal({
   amountMist,
   chain: chainInput = defaultProductChain,
   recipient,
+  requestId,
   txHash,
   wallet: walletInput,
 }: {
   amountMist?: unknown;
   chain?: ProductChainId;
   recipient?: unknown;
+  requestId?: unknown;
   txHash?: unknown;
   wallet: WalletAuthInput;
 }) {
@@ -839,9 +887,36 @@ export async function verifyUsageVaultWithdrawal({
 
   const amountNeuron = BigInt(parsed.amount).toString();
   const expectedAmount = readOptionalPositiveMist(amountMist);
+  const withdrawalRequestId =
+    requestId === undefined || requestId === null || requestId === ""
+      ? undefined
+      : readUuid(requestId, "requestId");
 
   if (expectedAmount && expectedAmount !== amountNeuron) {
     throw new UsageHttpError(400, "Withdrawal amount mismatch.");
+  }
+
+  if (withdrawalRequestId) {
+    const request = await readWithdrawalRequestForAdmin(
+      admin,
+      withdrawalRequestId
+    );
+
+    if (request.status !== "pending") {
+      throw new UsageHttpError(409, "Withdrawal request is no longer pending.");
+    }
+
+    if (request.chain_slug !== admin.chain.id) {
+      throw new UsageHttpError(400, "Withdrawal request chain mismatch.");
+    }
+
+    if (normalizeDepositAddress(request.recipient_address) !== eventRecipient) {
+      throw new UsageHttpError(400, "Withdrawal request recipient mismatch.");
+    }
+
+    if (readDecimalString(request.amount_neuron) !== amountNeuron) {
+      throw new UsageHttpError(400, "Withdrawal request amount mismatch.");
+    }
   }
 
   const balanceAfterNeuron = readDecimalString(parsed.balance_after);
@@ -883,6 +958,45 @@ export async function verifyUsageVaultWithdrawal({
   }
 
   const row = data as UsageRpcRow;
+  let completedRequest:
+    | {
+        completedAt: string;
+        requestId: string;
+        status: "completed" | "pending" | "rejected";
+      }
+    | undefined;
+
+  if (withdrawalRequestId) {
+    const { data: completionData, error: completionError } =
+      await untypedUsageRpc(admin.context.supabase).rpc(
+        "langclaw_usage_complete_withdrawal",
+        {
+          p_admin_wallet_address: admin.context.wallet.address,
+          p_admin_wallet_user_id: admin.context.walletUser.id,
+          p_request_id: withdrawalRequestId,
+          p_tx_hash: hash,
+        }
+      );
+
+    if (completionError) {
+      throw new UsageHttpError(
+        500,
+        usageDatabaseErrorMessage(completionError.message)
+      );
+    }
+
+    const completionRow = firstRpcRow(completionData);
+
+    if (!completionRow) {
+      throw new UsageHttpError(500, "Withdrawal request was not completed.");
+    }
+
+    completedRequest = {
+      completedAt: readString(completionRow.completed_at),
+      requestId: readString(completionRow.request_id) || withdrawalRequestId,
+      status: readWithdrawalStatus(completionRow.status),
+    };
+  }
 
   return {
     amountNative: formatBillingAmount(BigInt(amountNeuron), admin.chain),
@@ -896,6 +1010,7 @@ export async function verifyUsageVaultWithdrawal({
     nativeSymbol: admin.chain.billingCurrency.symbol,
     recorded: true,
     recipient: eventRecipient,
+    request: completedRequest,
     txHash: readString(row.tx_hash) || hash,
     wallet: admin.context.wallet.address,
   };
@@ -921,6 +1036,206 @@ export async function buildWithdrawRequestForChain(
     balance: accountToBalance(account, chain),
     note:
       "Vault withdrawals are admin-only on Sui: usage_vault::withdraw(&AdminCap, &mut Vault, amount, recipient) must be called by the vault admin. The connected wallet cannot self-withdraw.",
+  };
+}
+
+export async function requestUsageWithdrawalForChain({
+  amountMist,
+  chain: chainInput,
+  recipient,
+  wallet: walletInput,
+}: {
+  amountMist: unknown;
+  chain: ProductChainId;
+  recipient?: unknown;
+  wallet: WalletAuthInput;
+}) {
+  const chain = getProductChain(chainInput);
+  const context = await requireWalletUsageContext(walletInput);
+  const amountNeuron = readRequiredPositiveMist(amountMist);
+  const recipientAddress =
+    readOptionalSuiAddress(recipient) || normalizeDepositAddress(context.wallet.address);
+
+  if (!recipientAddress) {
+    throw new UsageHttpError(400, "recipient must be a valid Sui address.");
+  }
+
+  const account = await ensureUsageAccount(
+    context.walletUser.id,
+    context.wallet,
+    chain
+  );
+  const vault = buildUsageVaultInfo(chain.id);
+  const { data, error } = await untypedUsageRpc(context.supabase).rpc(
+    "langclaw_usage_request_withdrawal",
+    {
+      p_amount_neuron: amountNeuron,
+      p_chain_id: chain.chainId,
+      p_chain_slug: chain.id,
+      p_native_symbol: chain.billingCurrency.symbol,
+      p_recipient_address: recipientAddress,
+      p_wallet_address: context.wallet.address,
+      p_wallet_user_id: context.walletUser.id,
+    }
+  );
+
+  if (error) {
+    throw new UsageHttpError(500, usageDatabaseErrorMessage(error.message));
+  }
+
+  const row = firstRpcRow(data);
+
+  if (!row) {
+    throw new UsageHttpError(500, "Withdrawal request was not created.");
+  }
+
+  return {
+    ...vault,
+    wallet: context.wallet.address,
+    recipient: recipientAddress,
+    request: {
+      id: readString(row.request_id),
+      status: readWithdrawalStatus(row.status),
+      amountNeuron,
+      amountNative: formatBillingAmount(BigInt(amountNeuron), chain),
+      balanceBefore: readDecimalString(row.balance_before_neuron),
+      balanceAfter: readDecimalString(row.balance_after_neuron),
+      createdAt: readString(row.created_at),
+    },
+    balance: accountToBalance(
+      {
+        ...account,
+        available_neuron: readDecimalString(row.balance_after_neuron),
+      },
+      chain
+    ),
+    note:
+      "Withdrawal request created. The vault admin must execute usage_vault::withdraw on Sui before funds arrive in the recipient wallet.",
+  };
+}
+
+export async function listUsageWithdrawalRequestsForChain(
+  walletInput: WalletAuthInput,
+  chainInput: ProductChainId
+) {
+  const chain = getProductChain(chainInput);
+  const context = await requireWalletUsageContext(walletInput);
+  const { data, error } = await context.supabase
+    .from("langclaw_usage_withdrawal_requests")
+    .select(
+      "id,wallet_user_id,wallet_address,recipient_address,chain_slug,chain_id,native_symbol,amount_neuron,balance_before_neuron,balance_after_neuron,status,tx_hash,rejection_reason,created_at,completed_at,rejected_at"
+    )
+    .eq("wallet_user_id", context.walletUser.id)
+    .eq("chain_slug", chain.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new UsageHttpError(500, usageDatabaseErrorMessage(error.message));
+  }
+
+  return {
+    chain: chain.id,
+    chainId: chain.chainId,
+    chainName: chain.name,
+    configured: true,
+    nativeSymbol: chain.billingCurrency.symbol,
+    wallet: context.wallet.address,
+    requests: ((data ?? []) as unknown as UsageWithdrawalRequestRow[]).map((row) =>
+      withdrawalRequestToPayload(row, chain)
+    ),
+  };
+}
+
+export async function listPendingUsageWithdrawalRequests(
+  walletInput: WalletAuthInput,
+  chainInput: ProductChainId
+) {
+  const admin = await requireUsageVaultAdminContext(walletInput, chainInput);
+
+  if (!admin.isAdmin) {
+    throw new UsageHttpError(403, "Connected wallet does not own the vault AdminCap.");
+  }
+
+  const { data, error } = await admin.context.supabase
+    .from("langclaw_usage_withdrawal_requests")
+    .select(
+      "id,wallet_user_id,wallet_address,recipient_address,chain_slug,chain_id,native_symbol,amount_neuron,balance_before_neuron,balance_after_neuron,status,tx_hash,rejection_reason,created_at,completed_at,rejected_at"
+    )
+    .eq("status", "pending")
+    .eq("chain_slug", admin.chain.id)
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (error) {
+    throw new UsageHttpError(500, usageDatabaseErrorMessage(error.message));
+  }
+
+  return {
+    adminWallet: admin.context.wallet.address,
+    chain: admin.chain.id,
+    chainId: admin.chain.chainId,
+    chainName: admin.chain.name,
+    configured: true,
+    nativeSymbol: admin.chain.billingCurrency.symbol,
+    requests: ((data ?? []) as unknown as UsageWithdrawalRequestRow[]).map((row) =>
+      withdrawalRequestToPayload(row, admin.chain)
+    ),
+  };
+}
+
+export async function rejectUsageWithdrawalRequest({
+  chain: chainInput,
+  reason,
+  requestId,
+  wallet: walletInput,
+}: {
+  chain: ProductChainId;
+  reason?: unknown;
+  requestId: unknown;
+  wallet: WalletAuthInput;
+}) {
+  const admin = await requireUsageVaultAdminContext(walletInput, chainInput);
+
+  if (!admin.isAdmin) {
+    throw new UsageHttpError(403, "Connected wallet does not own the vault AdminCap.");
+  }
+
+  const id = readUuid(requestId, "requestId");
+  const { data, error } = await untypedUsageRpc(admin.context.supabase).rpc(
+    "langclaw_usage_reject_withdrawal",
+    {
+      p_admin_wallet_address: admin.context.wallet.address,
+      p_admin_wallet_user_id: admin.context.walletUser.id,
+      p_rejection_reason: readString(reason),
+      p_request_id: id,
+    }
+  );
+
+  if (error) {
+    throw new UsageHttpError(500, usageDatabaseErrorMessage(error.message));
+  }
+
+  const row = firstRpcRow(data);
+
+  if (!row) {
+    throw new UsageHttpError(500, "Withdrawal request was not rejected.");
+  }
+
+  return {
+    chain: admin.chain.id,
+    chainId: admin.chain.chainId,
+    chainName: admin.chain.name,
+    configured: true,
+    nativeSymbol: admin.chain.billingCurrency.symbol,
+    requestId: readString(row.request_id) || id,
+    status: readWithdrawalStatus(row.status),
+    balanceAfterRefundNeuron: readDecimalString(row.balance_after_refund_neuron),
+    balanceAfterRefundNative: formatBillingAmount(
+      BigInt(readDecimalString(row.balance_after_refund_neuron)),
+      admin.chain
+    ),
+    rejectedAt: readString(row.rejected_at),
   };
 }
 
@@ -1254,6 +1569,10 @@ function readOptionalPositiveMist(value: unknown) {
     return undefined;
   }
 
+  return readRequiredPositiveMist(value);
+}
+
+function readRequiredPositiveMist(value: unknown) {
   const amount = readNeuronString(value);
 
   if (!amount || BigInt(amount) <= 0n) {
@@ -1261,6 +1580,77 @@ function readOptionalPositiveMist(value: unknown) {
   }
 
   return amount;
+}
+
+function readUuid(value: unknown, field: string) {
+  if (
+    typeof value !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    )
+  ) {
+    throw new UsageHttpError(400, `${field} must be a valid UUID.`);
+  }
+
+  return value.trim().toLowerCase();
+}
+
+function readWithdrawalStatus(value: unknown): "pending" | "completed" | "rejected" {
+  return value === "completed" || value === "rejected" ? value : "pending";
+}
+
+function withdrawalRequestToPayload(
+  row: UsageWithdrawalRequestRow,
+  chain: ProductChainConfig
+) {
+  const amountNeuron = readDecimalString(row.amount_neuron);
+  const balanceBefore = readDecimalString(row.balance_before_neuron);
+  const balanceAfter = readDecimalString(row.balance_after_neuron);
+
+  return {
+    id: row.id,
+    amountNeuron,
+    amountNative: formatBillingAmount(BigInt(amountNeuron), chain),
+    balanceBefore,
+    balanceBeforeNative: formatBillingAmount(BigInt(balanceBefore), chain),
+    balanceAfter,
+    balanceAfterNative: formatBillingAmount(BigInt(balanceAfter), chain),
+    chain: chain.id,
+    chainId: chain.chainId,
+    createdAt: row.created_at ?? "",
+    completedAt: row.completed_at ?? null,
+    nativeSymbol: chain.billingCurrency.symbol,
+    recipient: row.recipient_address,
+    rejectedAt: row.rejected_at ?? null,
+    rejectionReason: row.rejection_reason ?? null,
+    status: readWithdrawalStatus(row.status),
+    txHash: row.tx_hash ?? null,
+    wallet: row.wallet_address,
+  };
+}
+
+async function readWithdrawalRequestForAdmin(
+  admin: UsageVaultAdminContext,
+  requestId: string
+) {
+  const { data, error } = await admin.context.supabase
+    .from("langclaw_usage_withdrawal_requests")
+    .select(
+      "id,wallet_user_id,wallet_address,recipient_address,chain_slug,chain_id,native_symbol,amount_neuron,balance_before_neuron,balance_after_neuron,status,tx_hash,rejection_reason,created_at,completed_at,rejected_at"
+    )
+    .eq("id", requestId)
+    .single();
+
+  if (error || !data) {
+    throw new UsageHttpError(
+      error?.code === "PGRST116" ? 404 : 500,
+      error
+        ? usageDatabaseErrorMessage(error.message)
+        : "Withdrawal request was not found."
+    );
+  }
+
+  return data as unknown as UsageWithdrawalRequestRow;
 }
 
 function readEventSeq(value: unknown) {

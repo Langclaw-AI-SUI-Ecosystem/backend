@@ -20,6 +20,8 @@ import { handleMemory, handleMemorySettings } from "./routes/memory";
 import { handleWatchlist } from "./routes/watchlist";
 import {
   handleAdminUsageVaultStatus,
+  handleAdminUsageVaultWithdrawalPending,
+  handleAdminUsageVaultWithdrawalReject,
   handleAdminUsageVaultWithdrawalVerify,
 } from "./routes/admin";
 import {
@@ -36,6 +38,7 @@ import {
   handleUsageQuote,
   handleUsageVaultInfo,
   handleUsageWithdrawRequest,
+  handleUsageWithdrawals,
 } from "./routes/usage";
 import { handleProofDecisions, handleProofReadiness } from "./routes/proofs";
 import {
@@ -53,6 +56,14 @@ type RouteHandler = (request: Request) => Promise<Response> | Response;
 
 const routes = new Map<string, RouteHandler>([
   ["POST /api/admin/usage-vault/status", handleAdminUsageVaultStatus],
+  [
+    "POST /api/admin/usage-vault/withdrawals/pending",
+    handleAdminUsageVaultWithdrawalPending,
+  ],
+  [
+    "POST /api/admin/usage-vault/withdrawals/reject",
+    handleAdminUsageVaultWithdrawalReject,
+  ],
   [
     "POST /api/admin/usage-vault/withdrawals/verify",
     handleAdminUsageVaultWithdrawalVerify,
@@ -84,6 +95,7 @@ const routes = new Map<string, RouteHandler>([
   ["POST /api/usage/quote", handleUsageQuote],
   ["POST /api/usage/vault", handleUsageVaultInfo],
   ["POST /api/usage/withdraw/request", handleUsageWithdrawRequest],
+  ["POST /api/usage/withdrawals", handleUsageWithdrawals],
   ["POST /api/watchlist", handleWatchlist],
 ]);
 

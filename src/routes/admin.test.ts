@@ -17,7 +17,17 @@ test("admin usage vault routes are registered behind admin route handlers", () =
     "Expected backend to expose an admin withdrawal audit route.",
   );
   assert.ok(
+    serverSource.includes("POST /api/admin/usage-vault/withdrawals/pending"),
+    "Expected backend to expose an admin pending withdrawal route.",
+  );
+  assert.ok(
+    serverSource.includes("POST /api/admin/usage-vault/withdrawals/reject"),
+    "Expected backend to expose an admin withdrawal rejection route.",
+  );
+  assert.ok(
     adminRouteSource.includes("readUsageVaultAdminStatus") &&
+      adminRouteSource.includes("listPendingUsageWithdrawalRequests") &&
+      adminRouteSource.includes("rejectUsageWithdrawalRequest") &&
       adminRouteSource.includes("verifyUsageVaultWithdrawal"),
     "Expected admin routes to use usage vault admin authorization helpers.",
   );
