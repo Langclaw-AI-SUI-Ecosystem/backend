@@ -1,8 +1,17 @@
 import type { OnChainToolFinalPayload, OnChainToolResult } from "../onchain-tools/types";
 import {
+  resolveResponseLanguage,
+  type ResponseLanguageCode,
+  type ResponseLanguageHint,
+} from "../response-language";
+import {
   isDirectProviderIssue,
   isUsableDirectProviderResult,
 } from "../onchain-tools/evidence";
+import {
+  getResearchLanguageCopy,
+  localizeResearchHeadings,
+} from "./research-language";
 import type {
   DiscoverSignals,
   FinalAnswer,
@@ -19,6 +28,7 @@ type FinalAnswerGuardrailInput = {
   signals: DiscoverSignals;
   onChain?: OnChainToolFinalPayload;
   onChainSkippedReason?: string;
+  responseLanguage?: ResponseLanguageHint;
 };
 
 type FinalAnswerGuardrails = {
@@ -39,6 +49,19 @@ export function buildFinalAnswerGuardrails(
 export function buildStructuredFinalAnswerCaveat(
   input: FinalAnswerGuardrailInput
 ) {
+  if (input.responseLanguage && input.responseLanguage.code !== "en") {
+    const copy = getResearchLanguageCopy(input.responseLanguage.code);
+    const failureCount = collectFailureNotes(input).length;
+
+    return [
+      failureCount ? copy.providerIssues(failureCount) : undefined,
+      copy.caveat,
+      noTransactionCopy[input.responseLanguage.code],
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" ");
+  }
+
   if (input.report?.kind === "smart-money") {
     return "Wallet labels, retention, sell pressure, and second-source checks may be incomplete. No market transaction was executed.";
   }
@@ -107,17 +130,31 @@ export function applyFinalAnswerGuardrails(
   answer: FinalAnswer,
   input: FinalAnswerGuardrailInput
 ): FinalAnswer {
-  const { structuredCaveat } = buildFinalAnswerGuardrails(input);
-  const strippedMarkdown = stripTrailingCaveatSection(answer.answerMarkdown || answer.answer);
-  const markdown = input.report?.kind === "smart-money"
+  const responseLanguage =
+    input.responseLanguage ??
+    resolveResponseLanguage(answer.answerMarkdown || answer.answer);
+  const copy = getResearchLanguageCopy(responseLanguage.code);
+  const { structuredCaveat } = buildFinalAnswerGuardrails({
+    ...input,
+    responseLanguage,
+  });
+  const strippedMarkdown = stripTrailingCaveatSection(
+    answer.answerMarkdown || answer.answer,
+    copy.limitationLabel
+  );
+  const preparedMarkdown = input.report?.kind === "smart-money"
     ? prepareSmartMoneyMarkdown(strippedMarkdown, input.report)
     : strippedMarkdown;
+  const markdown = localizeResearchHeadings(
+    preparedMarkdown,
+    responseLanguage.code
+  );
   const answerMarkdown =
     input.report?.kind === "smart-money"
       ? markdown
       : markdown
-        ? `${markdown}\n\nCaveat: ${structuredCaveat}`
-        : `Caveat: ${structuredCaveat}`;
+        ? `${markdown}\n\n${copy.limitationLabel}: ${structuredCaveat}`
+        : `${copy.limitationLabel}: ${structuredCaveat}`;
 
   return {
     ...answer,
@@ -694,10 +731,47 @@ function getDirectOnChainResults(
   ) ?? [];
 }
 
-function stripTrailingCaveatSection(markdown: string) {
+function stripTrailingCaveatSection(
+  markdown: string,
+  localizedLabel = "Caveat"
+) {
+  const labels = Array.from(
+    new Set(["Caveat", "Caveats", localizedLabel])
+  )
+    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
   return markdown
-    .replace(/\n{2,}#{1,6}\s*Caveats?\s*\n[\s\S]*$/i, "")
-    .replace(/\n{2,}Caveat:\s*[\s\S]*$/i, "")
-    .replace(/^Caveat:\s*[\s\S]*$/i, "")
+    .replace(
+      new RegExp(`\\n{2,}#{1,6}\\s*(?:${labels})\\s*\\n[\\s\\S]*$`, "i"),
+      ""
+    )
+    .replace(
+      new RegExp(`\\n{2,}(?:${labels}):\\s*[\\s\\S]*$`, "i"),
+      ""
+    )
+    .replace(new RegExp(`^(?:${labels}):\\s*[\\s\\S]*$`, "i"), "")
     .trim();
 }
+
+const noTransactionCopy: Record<ResponseLanguageCode, string> = {
+  ar: "لم يشترِ Langclaw أو يبع أو يبدل أو ينفذ معاملات سوقية.",
+  de: "Langclaw hat keine Markttransaktionen gekauft, verkauft, getauscht oder ausgeführt.",
+  el: "Το Langclaw δεν αγόρασε, πούλησε, αντάλλαξε ή εκτέλεσε συναλλαγές αγοράς.",
+  en: "Langclaw did not buy, sell, swap, or execute market transactions.",
+  es: "Langclaw no compró, vendió, intercambió ni ejecutó transacciones de mercado.",
+  fr: "Langclaw n'a effectué aucun achat, vente, échange ou transaction de marché.",
+  he: "Langclaw לא קנתה, מכרה, החליפה או ביצעה עסקאות שוק.",
+  hi: "Langclaw ने कोई खरीद, बिक्री, स्वैप या बाजार लेनदेन नहीं किया।",
+  id: "Langclaw tidak membeli, menjual, menukar, atau mengeksekusi transaksi pasar.",
+  it: "Langclaw non ha comprato, venduto, scambiato o eseguito transazioni di mercato.",
+  ja: "Langclawは購入、売却、スワップ、その他の市場取引を実行していません。",
+  ko: "Langclaw는 매수, 매도, 스왑 또는 시장 거래를 실행하지 않았습니다.",
+  nl: "Langclaw heeft geen markttransacties gekocht, verkocht, geruild of uitgevoerd.",
+  pt: "A Langclaw não comprou, vendeu, trocou nem executou transações de mercado.",
+  ru: "Langclaw не покупал, не продавал, не обменивал и не выполнял рыночные транзакции.",
+  th: "Langclaw ไม่ได้ซื้อ ขาย สวอป หรือดำเนินธุรกรรมในตลาด",
+  tr: "Langclaw alım, satım, takas veya piyasa işlemi gerçekleştirmedi.",
+  vi: "Langclaw không mua, bán, hoán đổi hoặc thực hiện giao dịch thị trường.",
+  zh: "Langclaw 未执行买入、卖出、兑换或其他市场交易。",
+};

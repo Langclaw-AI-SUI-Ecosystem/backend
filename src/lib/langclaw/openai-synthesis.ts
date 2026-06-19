@@ -28,9 +28,15 @@ import type {
   ZeroGComputeProof,
 } from "./types";
 import type { OnChainToolFinalPayload } from "../onchain-tools/types";
+import type {
+  ResponseLanguageContextMessage,
+  ResponseLanguageHint,
+} from "../response-language";
 
 type OpenAISynthesisInput = {
   topic: string;
+  context?: ResponseLanguageContextMessage[];
+  responseLanguage?: ResponseLanguageHint;
   sources: SourceCard[];
   errors: ProviderError[];
   providerTrace?: ProviderTraceEntry[];
@@ -79,6 +85,7 @@ export async function synthesizeFinalAnswerWithOpenAI(
         onChainSkippedReason: input.onChainSkippedReason,
         providerTrace: input.providerTrace,
         report: input.report,
+        responseLanguage: input.responseLanguage,
         signals: input.signals,
       }),
       meta: {

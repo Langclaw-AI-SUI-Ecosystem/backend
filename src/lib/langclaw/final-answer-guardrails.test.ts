@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyFinalAnswerGuardrails } from "./final-answer-guardrails";
+import { resolveResponseLanguage } from "../response-language";
 import type { DiscoverSignals, FinalAnswer, ResearchReport } from "./types";
 
 const signals: DiscoverSignals = {
@@ -26,6 +27,50 @@ const signals: DiscoverSignals = {
     toolIds: [],
   },
 };
+
+test("research guardrail caveat follows the response language", () => {
+  const answer: FinalAnswer = {
+    answer: "La investigación encontró evidencia limitada.",
+    answerMarkdown: [
+      "## Evidence",
+      "",
+      "La investigación encontró evidencia limitada.",
+      "",
+      "## Limits",
+      "",
+      "Faltan datos directos.",
+      "",
+      "## Conclusion",
+      "",
+      "Se necesita verificación adicional.",
+    ].join("\n"),
+    bullets: [],
+    generatedBy: "Final Conclusion Agent",
+  };
+  const guarded = applyFinalAnswerGuardrails(answer, {
+    errors: [],
+    onChainSkippedReason: "QA intentionally skipped on-chain enrichment.",
+    responseLanguage: resolveResponseLanguage(
+      "Hola, analiza la liquidez de Sui"
+    ),
+    signals: {
+      ...signals,
+      combined: {
+        ...signals.combined,
+        status: "partial",
+      },
+    },
+  });
+
+  assert.match(guarded.answerMarkdown ?? "", /Limitación:/);
+  assert.match(guarded.answerMarkdown ?? "", /## Evidencia/);
+  assert.match(guarded.answerMarkdown ?? "", /## Límites/);
+  assert.match(guarded.answerMarkdown ?? "", /## Conclusión/);
+  assert.doesNotMatch(
+    guarded.answerMarkdown ?? "",
+    /## Evidence|## Limits|## Conclusion|On-chain enrichment was skipped|directional research|did not buy/
+  );
+});
 
 test("smart-money guardrails inject deterministic report table", () => {
   const report: ResearchReport = {

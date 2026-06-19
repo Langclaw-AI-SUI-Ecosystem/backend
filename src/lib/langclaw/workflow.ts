@@ -17,7 +17,17 @@ import {
 import { runProviderDiscovery } from "./providers";
 import { persistLangclawProof } from "./proof";
 import { buildWorkflowResearchReport } from "./report";
+import {
+  getResearchLanguageCopy,
+  localizeSignalStatus,
+} from "./research-language";
 import { resolveProductChain } from "../chain-config";
+import {
+  resolveResponseLanguage,
+  type ResponseLanguageCode,
+  type ResponseLanguageContextMessage,
+  type ResponseLanguageHint,
+} from "../response-language";
 import { detectUnsupportedOnChainChain, inferAnalysisChain } from "../onchain-tools/chains";
 import {
   isDirectProviderIssue,
@@ -82,6 +92,8 @@ type WorkflowOptions = {
 
 type WorkflowFinalAnswerSynthesisInput = {
   topic: string;
+  context?: ResponseLanguageContextMessage[];
+  responseLanguage?: ResponseLanguageHint;
   sources: SourceCard[];
   errors: ProviderError[];
   providerTrace?: ProviderTraceEntry[];
@@ -179,6 +191,10 @@ export async function runLangclawWorkflow(
   options: WorkflowOptions = {}
 ): Promise<DiscoverPayload> {
   const chain = resolveProductChain(options.chain);
+  const responseLanguage = resolveResponseLanguage(
+    topic,
+    options.context ?? []
+  );
   const runId = createRunId();
   const traceOverrides: TraceOverrides = {};
 
@@ -427,7 +443,8 @@ export async function runLangclawWorkflow(
     sources,
     errors,
     runtime,
-    agentOutputs
+    agentOutputs,
+    responseLanguage
   );
   const traceBeforeAnswer = buildTraceSteps(
     topic,
@@ -445,10 +462,13 @@ export async function runLangclawWorkflow(
     onChainEnrichment.payload,
     onChainEnrichment.skippedReason,
     providerTrace,
-    report
+    report,
+    responseLanguage
   );
   const computeSynthesis = await synthesizeWorkflowFinalAnswer({
     topic,
+    context: options.context,
+    responseLanguage,
     sources,
     errors,
     providerTrace,
@@ -471,7 +491,7 @@ export async function runLangclawWorkflow(
   );
   const finalAnswer = synthesis.finalAnswer
     ? synthesis.finalAnswer
-    : withFallbackCaveat(fallbackAnswer, finalAnswerMeta);
+    : withFallbackCaveat(fallbackAnswer, finalAnswerMeta, responseLanguage);
   await emitProgress(
     options,
     workflowSteps[8],
@@ -612,6 +632,8 @@ export async function synthesizeWorkflowFinalAnswer(
   if (input.preferOpenClaw) {
     openClawResult = await openClawSynthesis({
       topic: input.topic,
+      context: input.context,
+      responseLanguage: input.responseLanguage,
       sources: input.sources,
       errors: input.errors,
       providerTrace: input.providerTrace,
@@ -636,6 +658,8 @@ export async function synthesizeWorkflowFinalAnswer(
 
   const openAIResult = await openAISynthesis({
     topic: input.topic,
+    context: input.context,
+    responseLanguage: input.responseLanguage,
     sources: input.sources,
     errors: input.errors,
     providerTrace: input.providerTrace,
@@ -1133,8 +1157,18 @@ function buildFinalConclusion(
   sources: SourceCard[],
   errors: ProviderError[],
   runtime: OrchestrationRuntime,
-  agentOutputs?: AgentOutputs
+  agentOutputs?: AgentOutputs,
+  responseLanguage: ResponseLanguageHint = resolveResponseLanguage(topic)
 ): FinalConclusion {
+  if (responseLanguage.code !== "en") {
+    return buildLocalizedFinalConclusion(
+      topic,
+      sources,
+      errors,
+      responseLanguage.code
+    );
+  }
+
   const activeProviders = Array.from(
     new Set(sources.map((source) => source.provider))
   );
@@ -1433,8 +1467,21 @@ export function buildFinalAnswer(
   onChain?: OnChainToolFinalPayload,
   onChainSkippedReason?: string,
   providerTrace?: ProviderTraceEntry[],
-  report?: ResearchReport
+  report?: ResearchReport,
+  responseLanguage: ResponseLanguageHint = resolveResponseLanguage(topic)
 ): FinalAnswer {
+  if (responseLanguage.code !== "en" || (!report && !onChain)) {
+    return buildLocalizedFallbackAnswer(
+      topic,
+      sources,
+      errors,
+      signals,
+      onChain,
+      report,
+      responseLanguage.code
+    );
+  }
+
   if (report) {
     return buildReportLedFallbackAnswer(
       errors,
@@ -1931,23 +1978,147 @@ function summarizeResultProviders(results: OnChainToolResult[]) {
   return providers.join(", ");
 }
 
-export function withFallbackCaveat(answer: FinalAnswer, meta: FinalAnswerMeta) {
-  const fallbackNote = meta.error
-    ? `AI synthesis failed, deterministic fallback used. Reason: ${meta.error}`
-    : "AI synthesis failed, deterministic fallback used.";
-  const baseCaveat = answer.caveat || "Limited confidence.";
-  const combinedCaveat = baseCaveat.includes("AI synthesis failed")
+export function withFallbackCaveat(
+  answer: FinalAnswer,
+  meta: FinalAnswerMeta,
+  responseLanguage: ResponseLanguageHint = resolveResponseLanguage(
+    answer.answerMarkdown || answer.answer
+  )
+) {
+  const copy = getResearchLanguageCopy(responseLanguage.code);
+  const fallbackNote = copy.synthesisFailed(meta.error);
+  const baseCaveat = answer.caveat || copy.caveat;
+  const combinedCaveat = baseCaveat.includes(fallbackNote)
     ? baseCaveat
     : `${baseCaveat} ${fallbackNote}`.trim();
-  const markdown = stripTrailingCaveat(answer.answerMarkdown || answer.answer);
+  const markdown = stripTrailingCaveat(
+    answer.answerMarkdown || answer.answer,
+    copy.limitationLabel
+  );
   const updatedMarkdown = markdown
-    ? `${markdown}\n\nCaveat: ${combinedCaveat}`
-    : `Caveat: ${combinedCaveat}`;
+    ? `${markdown}\n\n${copy.limitationLabel}: ${combinedCaveat}`
+    : `${copy.limitationLabel}: ${combinedCaveat}`;
 
   return {
     ...answer,
     caveat: combinedCaveat,
     answerMarkdown: updatedMarkdown,
+  };
+}
+
+function buildLocalizedFallbackAnswer(
+  topic: string,
+  sources: SourceCard[],
+  errors: ProviderError[],
+  signals: DiscoverSignals,
+  onChain: OnChainToolFinalPayload | undefined,
+  report: ResearchReport | undefined,
+  languageCode: ResponseLanguageCode
+): FinalAnswer {
+  const copy = getResearchLanguageCopy(languageCode);
+  const providers = Array.from(
+    new Set([
+      ...sources.map((source) => providerLabel(source.provider)),
+      ...(signals.combined.providers ?? []),
+    ])
+  );
+  const providerText = providers.length ? providers.join(", ") : "-";
+  const toolCount = onChain?.tools.length ?? signals.onchain.toolIds.length;
+  const evidenceCount = Math.max(sources.length, report?.entities.length ?? 0);
+  const summary = evidenceCount
+    ? copy.found(topic, evidenceCount)
+    : copy.missing(topic);
+  const recommendation = evidenceCount
+    ? copy.recommendation
+    : copy.retryRecommendation;
+  const providerQuality = errors.length
+    ? copy.providerIssues(errors.length)
+    : copy.noProviderIssues;
+  const bullets = [
+    copy.providers(providerText),
+    copy.socialStatus(
+      localizeSignalStatus(languageCode, signals.social.status)
+    ),
+    copy.onchainStatus(
+      localizeSignalStatus(languageCode, signals.onchain.status),
+      toolCount
+    ),
+    providerQuality,
+  ];
+  const entityLines =
+    report?.entities.slice(0, 8).map((entity) => {
+      const metrics = Object.entries(entity.metrics)
+        .filter(([, value]) => value !== null)
+        .slice(0, 6)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(", ");
+
+      return `- ${entity.rank}. ${entity.label}${metrics ? `: ${metrics}` : ""}`;
+    }) ?? [];
+  const answerMarkdown = [
+    summary,
+    `### ${copy.evidenceLabel}`,
+    ...entityLines,
+    `- ${copy.providers(providerText)}`,
+    `- ${copy.socialLabel}: ${copy.socialStatus(
+      localizeSignalStatus(languageCode, signals.social.status)
+    )}`,
+    `- ${copy.onchainLabel}: ${copy.onchainStatus(
+      localizeSignalStatus(languageCode, signals.onchain.status),
+      toolCount
+    )}`,
+    `- ${providerQuality}`,
+    recommendation,
+  ].join("\n\n");
+
+  return {
+    title: copy.title,
+    answer: summary,
+    answerMarkdown,
+    bullets,
+    recommendation,
+    caveat: copy.caveat,
+    generatedBy: "Final Conclusion Agent",
+  };
+}
+
+function buildLocalizedFinalConclusion(
+  topic: string,
+  sources: SourceCard[],
+  errors: ProviderError[],
+  languageCode: ResponseLanguageCode
+): FinalConclusion {
+  const copy = getResearchLanguageCopy(languageCode);
+  const providers = Array.from(
+    new Set(sources.map((source) => providerLabel(source.provider)))
+  );
+  const providerText = providers.length ? providers.join(", ") : "-";
+  const summary = sources.length
+    ? copy.found(topic, sources.length)
+    : copy.missing(topic);
+
+  return {
+    headline: summary,
+    summary: `${summary} ${copy.providers(providerText)}`,
+    keySignals: [
+      {
+        label: copy.evidenceLabel,
+        text: summary,
+        sourceIds: sources.map((source) => source.id),
+      },
+      {
+        label: copy.providersLabel,
+        text: copy.providers(providerText),
+        sourceIds: sources.map((source) => source.id),
+      },
+    ],
+    recommendation: sources.length
+      ? copy.recommendation
+      : copy.retryRecommendation,
+    qualityNote: errors.length
+      ? copy.providerIssues(errors.length)
+      : copy.noProviderIssues,
+    generatedBy: "Final Conclusion Agent",
   };
 }
 
@@ -2112,11 +2283,23 @@ function uniqueStrings(values: Array<string | undefined>) {
   return Array.from(new Set(values.filter(Boolean) as string[]));
 }
 
-function stripTrailingCaveat(markdown: string) {
+function stripTrailingCaveat(markdown: string, localizedLabel = "Caveat") {
+  const labels = Array.from(
+    new Set(["Caveat", "Caveats", localizedLabel])
+  )
+    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
   return markdown
-    .replace(/\n{2,}#{1,6}\s*Caveats?\s*\n[\s\S]*$/i, "")
-    .replace(/\n{2,}Caveat:\s*[\s\S]*$/i, "")
-    .replace(/^Caveat:\s*[\s\S]*$/i, "")
+    .replace(
+      new RegExp(`\\n{2,}#{1,6}\\s*(?:${labels})\\s*\\n[\\s\\S]*$`, "i"),
+      ""
+    )
+    .replace(
+      new RegExp(`\\n{2,}(?:${labels}):\\s*[\\s\\S]*$`, "i"),
+      ""
+    )
+    .replace(new RegExp(`^(?:${labels}):\\s*[\\s\\S]*$`, "i"), "")
     .trim();
 }
 

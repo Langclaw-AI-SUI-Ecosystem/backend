@@ -609,8 +609,51 @@ test("deterministic fallback appends the synthesis caveat only once", () => {
   assert.equal(caveatMatches.length, 1);
   assert.match(
     withCaveat.answerMarkdown ?? "",
-    /AI synthesis failed, deterministic fallback used/
+    /AI synthesis failed, so a deterministic fallback was used/
   );
+});
+
+test("deterministic research fallback uses the detected Spanish language", () => {
+  const signals: DiscoverSignals = {
+    combined: {
+      providers: [],
+      sourceIds: [],
+      status: "partial",
+      summary: "Combined signal is partial.",
+      toolIds: [],
+    },
+    onchain: {
+      providers: [],
+      sourceIds: [],
+      status: "skipped",
+      summary: "On-chain signal was skipped.",
+      toolIds: [],
+    },
+    social: {
+      providers: [],
+      sourceIds: [],
+      status: "partial",
+      summary: "Social signal is partial.",
+      toolIds: [],
+    },
+  };
+  const answer = buildFinalAnswer(
+    "hola, puedes buscar señales",
+    [],
+    [],
+    "typescript",
+    signals
+  );
+  const withCaveat = withFallbackCaveat(answer, {
+    error: "OpenAI unavailable.",
+    execution: "deterministic-fallback",
+    synthesis: "deterministic-fallback",
+  });
+
+  assert.match(answer.answerMarkdown ?? "", /La investigación/i);
+  assert.match(answer.answerMarkdown ?? "", /evidencia/i);
+  assert.doesNotMatch(answer.answerMarkdown ?? "", /Coba|Next step|Short conclusion/i);
+  assert.match(withCaveat.answerMarkdown ?? "", /Limitación:/i);
 });
 
 test("report-backed fallback stays user-facing instead of rendering the full report markdown", () => {
@@ -1144,7 +1187,7 @@ test("report-backed fallback does not reject token rankings when discovery entit
   assert.doesNotMatch(answer.answerMarkdown ?? "", /cannot rank/i);
   assert.match(
     answer.answerMarkdown ?? "",
-    /ranked on-chain shortlist from partial coverage/i
+    /SOLX/
   );
 });
 

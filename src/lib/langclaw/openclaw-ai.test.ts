@@ -150,6 +150,49 @@ test("buildFinalAnswerPrompt includes detected response language", () => {
   assert.match(prompt, /Mirror the latest user message's language/);
 });
 
+test("buildFinalAnswerPrompt inherits language from user context", () => {
+  const prompt = buildFinalAnswerPrompt({
+    agentOutputs: {},
+    context: [
+      {
+        role: "user",
+        content: "tolong lanjutkan analisis protokol sebelumnya",
+      },
+    ],
+    errors: [],
+    runtime: "typescript",
+    signals: {
+      combined: {
+        providers: [],
+        sourceIds: [],
+        status: "partial",
+        summary: "No strong signal yet.",
+        toolIds: [],
+      },
+      onchain: {
+        providers: [],
+        sourceIds: [],
+        status: "partial",
+        summary: "On-chain coverage is partial.",
+        toolIds: [],
+      },
+      social: {
+        providers: [],
+        sourceIds: [],
+        status: "partial",
+        summary: "Social coverage is partial.",
+        toolIds: [],
+      },
+    },
+    sources: [],
+    steps: [],
+    topic: "MNT 5000 Agni",
+  });
+
+  assert.match(prompt, /Detected response language: Indonesian \(medium\)/);
+  assert.match(prompt, /Write all user-visible prose in Indonesian/);
+});
+
 test("compact final answer prompt is smaller than the full research payload prompt", () => {
   const defiReport = {
     asOfUtc: "2026-05-23T00:00:00.000Z",

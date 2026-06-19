@@ -1,5 +1,9 @@
 import type { OpenAITextFormat } from "../openai/responses";
-import { detectResponseLanguage } from "../response-language";
+import {
+  resolveResponseLanguage,
+  type ResponseLanguageContextMessage,
+  type ResponseLanguageHint,
+} from "../response-language";
 import {
   isRecord,
   parseLooseJson,
@@ -30,6 +34,8 @@ import type {
 
 export type OpenClawFinalAnswerInput = {
   topic: string;
+  context?: ResponseLanguageContextMessage[];
+  responseLanguage?: ResponseLanguageHint;
   sources: SourceCard[];
   errors: ProviderError[];
   providerTrace?: ProviderTraceEntry[];
@@ -103,6 +109,7 @@ export async function synthesizeFinalAnswerWithOpenClaw(
         onChainSkippedReason: input.onChainSkippedReason,
         providerTrace: input.providerTrace,
         report: input.report,
+        responseLanguage: input.responseLanguage,
         signals: input.signals,
       }),
       meta: {
@@ -144,9 +151,12 @@ export function buildFinalAnswerPrompt(
     onChainSkippedReason: input.onChainSkippedReason,
     providerTrace: input.providerTrace,
     report: input.report,
+    responseLanguage: input.responseLanguage,
     signals: input.signals,
   });
-  const responseLanguage = detectResponseLanguage(input.topic);
+  const responseLanguage =
+    input.responseLanguage ??
+    resolveResponseLanguage(input.topic, input.context ?? []);
   const excerptLimit = compact ? 320 : 700;
   const sources = (compact ? input.sources.slice(0, 10) : input.sources).map(
     (source) => ({
