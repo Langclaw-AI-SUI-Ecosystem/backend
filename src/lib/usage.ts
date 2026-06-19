@@ -191,6 +191,10 @@ function usageDatabaseErrorMessage(message?: string) {
     return "Insufficient available SUI balance to withdraw.";
   }
 
+  if (raw?.includes("insufficient_vault_liquidity")) {
+    return "The usage vault does not have enough unreserved SUI for this withdrawal.";
+  }
+
   if (raw?.includes("withdrawal_request_not_found")) {
     return "Withdrawal request was not found.";
   }
@@ -824,11 +828,12 @@ export async function verifyUsageVaultWithdrawal({
   amountMist?: unknown;
   chain?: ProductChainId;
   recipient?: unknown;
-  requestId?: unknown;
+  requestId: unknown;
   txHash?: unknown;
   wallet: WalletAuthInput;
 }) {
   const hash = readTxHash(txHash);
+  const withdrawalRequestId = readUuid(requestId, "requestId");
   const admin = await requireUsageVaultAdminContext(walletInput, chainInput);
 
   if (!admin.isAdmin) {
@@ -887,36 +892,30 @@ export async function verifyUsageVaultWithdrawal({
 
   const amountNeuron = BigInt(parsed.amount).toString();
   const expectedAmount = readOptionalPositiveMist(amountMist);
-  const withdrawalRequestId =
-    requestId === undefined || requestId === null || requestId === ""
-      ? undefined
-      : readUuid(requestId, "requestId");
 
   if (expectedAmount && expectedAmount !== amountNeuron) {
     throw new UsageHttpError(400, "Withdrawal amount mismatch.");
   }
 
-  if (withdrawalRequestId) {
-    const request = await readWithdrawalRequestForAdmin(
-      admin,
-      withdrawalRequestId
-    );
+  const request = await readWithdrawalRequestForAdmin(
+    admin,
+    withdrawalRequestId
+  );
 
-    if (request.status !== "pending") {
-      throw new UsageHttpError(409, "Withdrawal request is no longer pending.");
-    }
+  if (request.status !== "pending") {
+    throw new UsageHttpError(409, "Withdrawal request is no longer pending.");
+  }
 
-    if (request.chain_slug !== admin.chain.id) {
-      throw new UsageHttpError(400, "Withdrawal request chain mismatch.");
-    }
+  if (request.chain_slug !== admin.chain.id) {
+    throw new UsageHttpError(400, "Withdrawal request chain mismatch.");
+  }
 
-    if (normalizeDepositAddress(request.recipient_address) !== eventRecipient) {
-      throw new UsageHttpError(400, "Withdrawal request recipient mismatch.");
-    }
+  if (normalizeDepositAddress(request.recipient_address) !== eventRecipient) {
+    throw new UsageHttpError(400, "Withdrawal request recipient mismatch.");
+  }
 
-    if (readDecimalString(request.amount_neuron) !== amountNeuron) {
-      throw new UsageHttpError(400, "Withdrawal request amount mismatch.");
-    }
+  if (readDecimalString(request.amount_neuron) !== amountNeuron) {
+    throw new UsageHttpError(400, "Withdrawal request amount mismatch.");
   }
 
   const balanceAfterNeuron = readDecimalString(parsed.balance_after);
@@ -958,45 +957,35 @@ export async function verifyUsageVaultWithdrawal({
   }
 
   const row = data as UsageRpcRow;
-  let completedRequest:
-    | {
-        completedAt: string;
-        requestId: string;
-        status: "completed" | "pending" | "rejected";
+  const { data: completionData, error: completionError } =
+    await untypedUsageRpc(admin.context.supabase).rpc(
+      "langclaw_usage_complete_withdrawal",
+      {
+        p_admin_wallet_address: admin.context.wallet.address,
+        p_admin_wallet_user_id: admin.context.walletUser.id,
+        p_request_id: withdrawalRequestId,
+        p_tx_hash: hash,
       }
-    | undefined;
+    );
 
-  if (withdrawalRequestId) {
-    const { data: completionData, error: completionError } =
-      await untypedUsageRpc(admin.context.supabase).rpc(
-        "langclaw_usage_complete_withdrawal",
-        {
-          p_admin_wallet_address: admin.context.wallet.address,
-          p_admin_wallet_user_id: admin.context.walletUser.id,
-          p_request_id: withdrawalRequestId,
-          p_tx_hash: hash,
-        }
-      );
-
-    if (completionError) {
-      throw new UsageHttpError(
-        500,
-        usageDatabaseErrorMessage(completionError.message)
-      );
-    }
-
-    const completionRow = firstRpcRow(completionData);
-
-    if (!completionRow) {
-      throw new UsageHttpError(500, "Withdrawal request was not completed.");
-    }
-
-    completedRequest = {
-      completedAt: readString(completionRow.completed_at),
-      requestId: readString(completionRow.request_id) || withdrawalRequestId,
-      status: readWithdrawalStatus(completionRow.status),
-    };
+  if (completionError) {
+    throw new UsageHttpError(
+      500,
+      usageDatabaseErrorMessage(completionError.message)
+    );
   }
+
+  const completionRow = firstRpcRow(completionData);
+
+  if (!completionRow) {
+    throw new UsageHttpError(500, "Withdrawal request was not completed.");
+  }
+
+  const completedRequest = {
+    completedAt: readString(completionRow.completed_at),
+    requestId: readString(completionRow.request_id) || withdrawalRequestId,
+    status: readWithdrawalStatus(completionRow.status),
+  };
 
   return {
     amountNative: formatBillingAmount(BigInt(amountNeuron), admin.chain),
@@ -1028,12 +1017,39 @@ export async function buildWithdrawRequestForChain(
     chain
   );
   const vault = buildUsageVaultInfo(chain.id);
+  const vaultBalanceNeuron = await readUsageVaultBalanceNeuronForChain(
+    chain,
+    vault.vaultObjectId
+  );
+  const liquidity = await readUsageVaultLiquidity(
+    context.supabase,
+    chain,
+    vaultBalanceNeuron
+  );
+  const accountBalance = accountToBalance(account, chain);
+  const withdrawableNeuron = (
+    BigInt(accountBalance.availableNeuron) < BigInt(liquidity.availableNeuron)
+      ? BigInt(accountBalance.availableNeuron)
+      : BigInt(liquidity.availableNeuron)
+  ).toString();
 
   return {
     ...vault,
     wallet: context.wallet.address,
     functionName: "withdraw",
-    balance: accountToBalance(account, chain),
+    balance: accountBalance,
+    vaultBalanceNeuron: liquidity.vaultBalanceNeuron,
+    vaultBalanceNative: formatBillingAmount(
+      BigInt(liquidity.vaultBalanceNeuron),
+      chain
+    ),
+    pendingWithdrawalNeuron: liquidity.pendingNeuron,
+    pendingWithdrawalNative: formatBillingAmount(
+      BigInt(liquidity.pendingNeuron),
+      chain
+    ),
+    withdrawableNeuron,
+    withdrawableNative: formatBillingAmount(BigInt(withdrawableNeuron), chain),
     note:
       "Vault withdrawals are admin-only on Sui: usage_vault::withdraw(&AdminCap, &mut Vault, amount, recipient) must be called by the vault admin. The connected wallet cannot self-withdraw.",
   };
@@ -1066,6 +1082,10 @@ export async function requestUsageWithdrawalForChain({
     chain
   );
   const vault = buildUsageVaultInfo(chain.id);
+  const vaultBalanceNeuron = await readUsageVaultBalanceNeuronForChain(
+    chain,
+    vault.vaultObjectId
+  );
   const { data, error } = await untypedUsageRpc(context.supabase).rpc(
     "langclaw_usage_request_withdrawal",
     {
@@ -1074,13 +1094,19 @@ export async function requestUsageWithdrawalForChain({
       p_chain_slug: chain.id,
       p_native_symbol: chain.billingCurrency.symbol,
       p_recipient_address: recipientAddress,
+      p_vault_balance_neuron: vaultBalanceNeuron,
       p_wallet_address: context.wallet.address,
       p_wallet_user_id: context.walletUser.id,
     }
   );
 
   if (error) {
-    throw new UsageHttpError(500, usageDatabaseErrorMessage(error.message));
+    const status =
+      error.message.includes("insufficient_vault_liquidity") ||
+      error.message.includes("insufficient_withdrawable_balance")
+        ? 409
+        : 500;
+    throw new UsageHttpError(status, usageDatabaseErrorMessage(error.message));
   }
 
   const row = firstRpcRow(data);
@@ -1088,6 +1114,19 @@ export async function requestUsageWithdrawalForChain({
   if (!row) {
     throw new UsageHttpError(500, "Withdrawal request was not created.");
   }
+
+  const balanceAfterNeuron = readDecimalString(row.balance_after_neuron);
+  const pendingWithdrawalNeuron = (
+    BigInt(readDecimalString(row.pending_before_neuron)) + BigInt(amountNeuron)
+  ).toString();
+  const vaultAvailableAfterNeuron = readDecimalString(
+    row.vault_available_after_neuron
+  );
+  const withdrawableNeuron = (
+    BigInt(balanceAfterNeuron) < BigInt(vaultAvailableAfterNeuron)
+      ? BigInt(balanceAfterNeuron)
+      : BigInt(vaultAvailableAfterNeuron)
+  ).toString();
 
   return {
     ...vault,
@@ -1099,13 +1138,28 @@ export async function requestUsageWithdrawalForChain({
       amountNeuron,
       amountNative: formatBillingAmount(BigInt(amountNeuron), chain),
       balanceBefore: readDecimalString(row.balance_before_neuron),
-      balanceAfter: readDecimalString(row.balance_after_neuron),
+      balanceAfter: balanceAfterNeuron,
       createdAt: readString(row.created_at),
     },
+    vaultBalanceNeuron: readDecimalString(row.vault_balance_neuron),
+    vaultBalanceNative: formatBillingAmount(
+      BigInt(readDecimalString(row.vault_balance_neuron)),
+      chain
+    ),
+    pendingWithdrawalNeuron,
+    pendingWithdrawalNative: formatBillingAmount(
+      BigInt(pendingWithdrawalNeuron),
+      chain
+    ),
+    withdrawableNeuron,
+    withdrawableNative: formatBillingAmount(
+      BigInt(withdrawableNeuron),
+      chain
+    ),
     balance: accountToBalance(
       {
         ...account,
-        available_neuron: readDecimalString(row.balance_after_neuron),
+        available_neuron: balanceAfterNeuron,
       },
       chain
     ),
@@ -1460,6 +1514,86 @@ function accountToBalance(account: UsageAccountRow, chain: ProductChainConfig) {
     lifetimeChargedMnt: formatBillingAmount(BigInt(lifetimeChargedNeuron), chain),
     lifetimeChargedNative: formatBillingAmount(BigInt(lifetimeChargedNeuron), chain),
   };
+}
+
+export function readUsageVaultBalanceNeuron(value: unknown) {
+  const root = readObjectRecord(value);
+  const data = readObjectRecord(root.data);
+  const content = readObjectRecord(data.content);
+  const fields = readObjectRecord(content.fields);
+  const rawBalance = fields.balance;
+
+  if (
+    (typeof rawBalance === "string" && /^\d+$/.test(rawBalance)) ||
+    (typeof rawBalance === "number" &&
+      Number.isSafeInteger(rawBalance) &&
+      rawBalance >= 0)
+  ) {
+    return BigInt(rawBalance).toString();
+  }
+
+  throw new UsageHttpError(
+    503,
+    "Configured usage vault balance could not be read from Sui."
+  );
+}
+
+async function readUsageVaultBalanceNeuronForChain(
+  chain: ProductChainConfig,
+  vaultObjectId: string
+) {
+  const rpcUrl =
+    readChainEnv(chain, "CHAIN_RPC_URL", chain.rpcUrl) || DEFAULT_SUI_RPC_URL;
+  const client = await createSuiClient(rpcUrl, chain.suiNetwork);
+  const vaultObject = await client.getObject({
+    id: vaultObjectId,
+    options: { showContent: true, showType: true },
+  });
+
+  if (vaultObject.error || !vaultObject.data?.objectId) {
+    throw new UsageHttpError(
+      503,
+      `Configured usage vault object was not found on ${chain.name}.`
+    );
+  }
+
+  return readUsageVaultBalanceNeuron(vaultObject);
+}
+
+async function readUsageVaultLiquidity(
+  supabase: unknown,
+  chain: ProductChainConfig,
+  vaultBalanceNeuron: string
+) {
+  const { data, error } = await untypedUsageRpc(supabase).rpc(
+    "langclaw_usage_read_vault_liquidity",
+    {
+      p_chain_slug: chain.id,
+      p_vault_balance_neuron: vaultBalanceNeuron,
+    }
+  );
+
+  if (error) {
+    throw new UsageHttpError(500, usageDatabaseErrorMessage(error.message));
+  }
+
+  const row = firstRpcRow(data);
+
+  if (!row) {
+    throw new UsageHttpError(500, "Usage vault liquidity could not be read.");
+  }
+
+  return {
+    availableNeuron: readDecimalString(row.available_neuron),
+    pendingNeuron: readDecimalString(row.pending_neuron),
+    vaultBalanceNeuron: readDecimalString(row.vault_balance_neuron),
+  };
+}
+
+function readObjectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function readUsageVaultConfig(chain: ProductChainConfig) {

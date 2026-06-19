@@ -43,6 +43,7 @@ export type SuiBalance = {
 
 export type SuiObjectResponse = {
   data?: {
+    content?: unknown;
     objectId?: string;
     owner?: unknown;
     type?: string;

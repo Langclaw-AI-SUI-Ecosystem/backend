@@ -305,9 +305,11 @@ Request:
 
 ### `POST /api/usage/withdraw/request`
 
-Without `amountMist`, returns vault withdrawal metadata and current withdrawable
-balance. With `amountMist`, atomically debits available balance and creates a
-pending withdrawal request for the vault admin.
+Without `amountMist`, returns vault withdrawal metadata, on-chain vault
+liquidity, pending liabilities, and the current withdrawable balance. With
+`amountMist`, checks unreserved vault liquidity, atomically debits available
+balance, and creates a pending withdrawal request for the vault admin. Requests
+that exceed current liquidity return HTTP `409`.
 
 Request:
 
@@ -335,8 +337,8 @@ Usage Vault AdminCap.
 ### `POST /api/admin/usage-vault/withdrawals/verify`
 
 Verifies a successful `usage_vault::withdraw` transaction and records the admin
-withdrawal audit. If `requestId` is supplied, the matching pending withdrawal
-request is marked `completed`.
+withdrawal audit. `requestId` is required. The transaction amount and recipient
+must match that pending request before it is marked `completed`.
 
 ### `POST /api/admin/usage-vault/withdrawals/reject`
 

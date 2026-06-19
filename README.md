@@ -210,10 +210,15 @@ Usage is internal ledger-based billing:
 4. Research/chat agent requests reserve balance before work starts.
 5. Successful runs settle cost from model/provider usage metadata.
 6. Failed runs refund the reservation where possible.
-7. `POST /api/usage/withdraw/request` with `amountMist` debits available
-   balance into a pending withdrawal request.
-8. The AdminCap holder executes `usage_vault::withdraw`, then
-   `POST /api/admin/usage-vault/withdrawals/verify` marks the request complete.
+7. `POST /api/usage/withdraw/request` checks unreserved on-chain vault
+   liquidity, then atomically debits available balance into a pending request.
+8. The AdminCap holder loads that pending request and executes
+   `usage_vault::withdraw`.
+9. `POST /api/admin/usage-vault/withdrawals/verify` requires the matching
+   `requestId` and marks the request complete.
+
+The admin dashboard does not support free-form vault withdrawals. Every
+dashboard withdrawal must match a pending request amount and recipient.
 
 Sui transactions are paid in native SUI gas; the agent recorder wallet signs
 proof and journal transactions on Sui mainnet.
