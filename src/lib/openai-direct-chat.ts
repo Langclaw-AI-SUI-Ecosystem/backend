@@ -4,7 +4,10 @@ import {
   streamOpenAITextResponse,
   type OpenAITextMessage,
 } from "./openai/responses";
-import { detectResponseLanguage } from "./response-language";
+import {
+  resolveResponseLanguage,
+  type ResponseLanguageCode,
+} from "./response-language";
 import { buildUsageMeter, mapUiTokenUsage } from "./usage-pricing";
 
 export type DirectChatContextMessage = {
@@ -56,7 +59,7 @@ export async function streamDirectChatWithOpenAI({
   try {
     const result = await streamOpenAITextResponse({
       input: buildMessages(message, context),
-      instructions: buildDirectChatInstructions(message),
+      instructions: buildDirectChatInstructions(message, context),
       maxOutputTokens: readPositiveInt(process.env.OPENAI_CHAT_MAX_OUTPUT_TOKENS, 1800),
       model,
       onDelta,
@@ -170,8 +173,11 @@ function buildMessages(
   ];
 }
 
-function buildDirectChatInstructions(message: string) {
-  const language = detectResponseLanguage(message);
+function buildDirectChatInstructions(
+  message: string,
+  context: DirectChatContextMessage[]
+) {
+  const language = resolveResponseLanguage(message, context);
 
   return [
     "You are Langclaw, a concise and helpful chat assistant.",
@@ -189,29 +195,135 @@ function buildDirectChatInstructions(message: string) {
   ].join(" ");
 }
 
-function buildLocalFallback(
+export function buildLocalFallback(
   message: string,
   context: DirectChatContextMessage[]
 ) {
-  const language = detectResponseLanguage(message);
-  const isIndonesian = language.label === "Indonesian";
+  const language = resolveResponseLanguage(message, context);
+  const copy = directFallbackCopy[language.code];
   const previousUser = [...context]
     .reverse()
     .find((item) => item.role === "user" && item.content !== message);
 
-  if (/^(hai|halo|hello|hi|hay|hey|pagi|siang|malam)\b/i.test(message)) {
-    return isIndonesian ? "Hai. Ada yang bisa aku bantu?" : "Hi. How can I help?";
+  if (isGreeting(message)) {
+    return copy.greeting;
   }
 
   if (/konteks|context|sebelumnya|tadi/i.test(message) && previousUser) {
-    return isIndonesian
-      ? `Konteks terakhir dari sesi ini adalah: "${previousUser.content}".`
-      : `The last context from this session is: "${previousUser.content}".`;
+    return copy.context(previousUser.content);
   }
 
-  return isIndonesian
-    ? "Aku belum bisa menghubungi model chat sekarang. Coba lagi sebentar."
-    : "I cannot reach the chat model right now. Try again shortly.";
+  return copy.unavailable;
+}
+
+type DirectFallbackCopy = {
+  context: (previous: string) => string;
+  greeting: string;
+  unavailable: string;
+};
+
+const directFallbackCopy: Record<ResponseLanguageCode, DirectFallbackCopy> = {
+  ar: {
+    context: (previous) => `آخر سياق في هذه الجلسة هو: "${previous}".`,
+    greeting: "مرحبًا. كيف يمكنني مساعدتك؟",
+    unavailable: "لا يمكنني الاتصال بنموذج الدردشة الآن. حاول مرة أخرى بعد قليل.",
+  },
+  de: {
+    context: (previous) => `Der letzte Kontext dieser Sitzung ist: „${previous}“.`,
+    greeting: "Hallo. Wie kann ich helfen?",
+    unavailable: "Ich kann das Chatmodell gerade nicht erreichen. Bitte versuche es gleich noch einmal.",
+  },
+  el: {
+    context: (previous) => `Το τελευταίο πλαίσιο αυτής της συνεδρίας είναι: «${previous}».`,
+    greeting: "Γεια. Πώς μπορώ να βοηθήσω;",
+    unavailable: "Δεν μπορώ να συνδεθώ με το μοντέλο συνομιλίας τώρα. Δοκίμασε ξανά σε λίγο.",
+  },
+  en: {
+    context: (previous) => `The last context from this session is: "${previous}".`,
+    greeting: "Hi. How can I help?",
+    unavailable: "I cannot reach the chat model right now. Try again shortly.",
+  },
+  es: {
+    context: (previous) => `El último contexto de esta sesión es: "${previous}".`,
+    greeting: "Hola. ¿Cómo puedo ayudarte?",
+    unavailable: "No puedo conectarme al modelo de chat ahora. Inténtalo de nuevo en unos momentos.",
+  },
+  fr: {
+    context: (previous) => `Le dernier contexte de cette session est : « ${previous} ».`,
+    greeting: "Bonjour. Comment puis-je vous aider ?",
+    unavailable: "Je ne peux pas joindre le modèle de chat pour le moment. Réessayez dans un instant.",
+  },
+  he: {
+    context: (previous) => `ההקשר האחרון בשיחה הזו הוא: "${previous}".`,
+    greeting: "שלום. איך אפשר לעזור?",
+    unavailable: "אין לי אפשרות להתחבר כרגע למודל הצ'אט. נסה שוב בעוד רגע.",
+  },
+  hi: {
+    context: (previous) => `इस सत्र का पिछला संदर्भ है: "${previous}"।`,
+    greeting: "नमस्ते। मैं कैसे मदद कर सकता हूँ?",
+    unavailable: "मैं अभी चैट मॉडल से संपर्क नहीं कर पा रहा हूँ। थोड़ी देर बाद फिर कोशिश करें।",
+  },
+  id: {
+    context: (previous) => `Konteks terakhir dari sesi ini adalah: "${previous}".`,
+    greeting: "Hai. Ada yang bisa aku bantu?",
+    unavailable: "Aku belum bisa menghubungi model chat sekarang. Coba lagi sebentar.",
+  },
+  it: {
+    context: (previous) => `L'ultimo contesto di questa sessione è: "${previous}".`,
+    greeting: "Ciao. Come posso aiutarti?",
+    unavailable: "Non riesco a contattare il modello di chat in questo momento. Riprova tra poco.",
+  },
+  ja: {
+    context: (previous) => `このセッションの直前の文脈は「${previous}」です。`,
+    greeting: "こんにちは。どのようにお手伝いできますか？",
+    unavailable: "現在チャットモデルに接続できません。しばらくしてからもう一度お試しください。",
+  },
+  ko: {
+    context: (previous) => `이 세션의 이전 맥락은 "${previous}"입니다.`,
+    greeting: "안녕하세요. 무엇을 도와드릴까요?",
+    unavailable: "현재 채팅 모델에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  },
+  nl: {
+    context: (previous) => `De laatste context uit deze sessie is: "${previous}".`,
+    greeting: "Hallo. Hoe kan ik helpen?",
+    unavailable: "Ik kan het chatmodel momenteel niet bereiken. Probeer het zo opnieuw.",
+  },
+  pt: {
+    context: (previous) => `O último contexto desta sessão é: "${previous}".`,
+    greeting: "Olá. Como posso ajudar?",
+    unavailable: "Não consigo acessar o modelo de chat agora. Tente novamente em instantes.",
+  },
+  ru: {
+    context: (previous) => `Последний контекст этой сессии: «${previous}».`,
+    greeting: "Здравствуйте. Чем я могу помочь?",
+    unavailable: "Сейчас не удается подключиться к модели чата. Повторите попытку чуть позже.",
+  },
+  th: {
+    context: (previous) => `บริบทล่าสุดของเซสชันนี้คือ: "${previous}"`,
+    greeting: "สวัสดี มีอะไรให้ช่วยไหม?",
+    unavailable: "ขณะนี้ไม่สามารถเชื่อมต่อโมเดลแชตได้ โปรดลองอีกครั้งในอีกสักครู่",
+  },
+  tr: {
+    context: (previous) => `Bu oturumdaki son bağlam: "${previous}".`,
+    greeting: "Merhaba. Nasıl yardımcı olabilirim?",
+    unavailable: "Şu anda sohbet modeline erişemiyorum. Kısa süre sonra tekrar deneyin.",
+  },
+  vi: {
+    context: (previous) => `Ngữ cảnh gần nhất của phiên này là: "${previous}".`,
+    greeting: "Xin chào. Tôi có thể giúp gì?",
+    unavailable: "Hiện tôi không thể kết nối với mô hình trò chuyện. Hãy thử lại sau ít phút.",
+  },
+  zh: {
+    context: (previous) => `本次会话的上一段上下文是：“${previous}”。`,
+    greeting: "你好。有什么可以帮你？",
+    unavailable: "目前无法连接聊天模型，请稍后再试。",
+  },
+};
+
+function isGreeting(message: string) {
+  return /^(hai|halo|hello|hi|hay|hey|pagi|siang|malam|hola|bonjour|salut|hallo|guten tag|olá|ola|oi|ciao|merhaba|xin chào|مرحبا|أهلا|שלום|नमस्ते|こんにちは|안녕하세요|สวัสดี|你好|您好|γεια|привет|здравствуйте)\b/iu.test(
+    message.trim()
+  );
 }
 
 function readPositiveInt(value: string | undefined, fallback: number) {
