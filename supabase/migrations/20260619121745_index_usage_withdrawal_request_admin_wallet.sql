@@ -1,0 +1,2 @@
+create index if not exists langclaw_usage_withdrawal_requests_admin_wallet_idx
+  on public.langclaw_usage_withdrawal_requests(admin_wallet_user_id);
