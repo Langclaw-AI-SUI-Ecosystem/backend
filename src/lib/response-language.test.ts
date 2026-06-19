@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { detectResponseLanguage } from "./response-language";
+import {
+  detectResponseLanguage,
+  resolveResponseLanguage,
+} from "./response-language";
 
 test("detectResponseLanguage prefers Indonesian for casual mixed prompts", () => {
   const result = detectResponseLanguage(
@@ -48,4 +51,54 @@ test("detectResponseLanguage falls back to latest user language instruction", ()
     result.instruction,
     /same language used by the latest user message/
   );
+});
+
+test("resolveResponseLanguage inherits an unambiguous prior user language", () => {
+  const result = resolveResponseLanguage("MNT 5000 Agni", [
+    {
+      role: "user",
+      content: "tolong bandingkan protokol ini dengan data sebelumnya",
+    },
+    {
+      role: "assistant",
+      content: "I can compare the protocols.",
+    },
+  ]);
+
+  assert.equal(result.label, "Indonesian");
+  assert.equal(result.code, "id");
+  assert.equal(result.confidence, "medium");
+});
+
+test("resolveResponseLanguage follows the latest explicit language request", () => {
+  const result = resolveResponseLanguage(
+    "tolong jawab dalam bahasa Inggris",
+    [
+      {
+        role: "user",
+        content: "jelaskan hasil sebelumnya dalam bahasa Indonesia",
+      },
+    ]
+  );
+
+  assert.equal(result.label, "English");
+  assert.equal(result.code, "en");
+  assert.equal(result.confidence, "high");
+});
+
+test("detectResponseLanguage recognizes a native explicit language request", () => {
+  const result = detectResponseLanguage(
+    "Analiza en español la liquidez actual del ecosistema Sui"
+  );
+
+  assert.equal(result.label, "Spanish");
+  assert.equal(result.code, "es");
+  assert.equal(result.confidence, "high");
+});
+
+test("detectResponseLanguage recognizes short Indonesian follow-ups", () => {
+  const result = detectResponseLanguage("yang kedua lanjut");
+
+  assert.equal(result.label, "Indonesian");
+  assert.equal(result.code, "id");
 });
