@@ -6,6 +6,7 @@ import {
   createWalletChallenge,
   normalizeSuiAddress,
   verifyWalletSession,
+  WalletAuthError,
 } from "./wallet-auth";
 
 // @mysten/sui is ESM-only; load it dynamically so this CommonJS-compiled test
@@ -106,6 +107,51 @@ test("accepts a demo signature for local development", async () => {
     assert.equal(verified?.authMethod, "challenge");
     assert.equal(verified?.address, normalized);
   });
+});
+
+test("rejects demo signatures unless explicitly enabled outside production", async () => {
+  const { suiAddress, normalized } = await getSigner();
+  const message = `Langclaw Sui wallet ${normalized.slice(2, 14)} private memory session`;
+
+  const defaultResult = await verifyWalletSession(
+    { address: suiAddress, message, signature: "demo:local" },
+    { requiredPurpose: "session" }
+  );
+
+  assert.equal(defaultResult, null);
+
+  await withEnv(
+    { LANGCLAW_ALLOW_DEMO_SIGNATURES: "true", NODE_ENV: "production" },
+    async () => {
+      const productionResult = await verifyWalletSession(
+        { address: suiAddress, message, signature: "demo:local" },
+        { requiredPurpose: "session" }
+      );
+
+      assert.equal(productionResult, null);
+    }
+  );
+});
+
+test("rate limits wallet challenge allocation before storing pending nonces", async () => {
+  const { suiAddress } = await getSigner();
+
+  await withEnv(
+    { LANGCLAW_WALLET_CHALLENGE_MAX_PER_MINUTE: "0" },
+    async () => {
+      assert.throws(
+        () =>
+          createWalletChallenge({
+            address: suiAddress,
+            request: new Request("https://api.langclaw.test/api/wallet/challenge"),
+          }),
+        (error) =>
+          error instanceof WalletAuthError &&
+          error.status === 429 &&
+          /Too many wallet challenge requests/.test(error.message)
+      );
+    }
+  );
 });
 
 test("API key creation requires a fresh api-key:create challenge", async () => {

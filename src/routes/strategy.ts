@@ -11,6 +11,12 @@ import {
   readTradingJournalRuns,
 } from "../lib/strategy/journal";
 import { readProductChainId } from "../lib/chain-config";
+import {
+  AccountAuthError,
+  accountAuthErrorResponse,
+  requireAccountAuth,
+} from "../lib/server/account-auth";
+import type { WalletAuthInput } from "../lib/server/wallet-auth";
 import type {
   StrategyBacktestParams,
   StrategyBacktestPayload,
@@ -24,6 +30,7 @@ type StrategyBody = {
   pairAddress?: unknown;
   params?: Partial<StrategyBacktestParams>;
   queryId?: unknown;
+  wallet?: WalletAuthInput;
 };
 
 export async function handleStrategyBacktest(request: Request) {
@@ -34,6 +41,7 @@ export async function handleStrategyBacktest(request: Request) {
   }
 
   try {
+    await requireStrategyAuth(request, body);
     const queryId = readOptionalString(body.queryId);
     const chain = readProductChainId(body.chain);
     const pairAddress = readOptionalString(body.pairAddress);
@@ -81,6 +89,7 @@ export async function handleStrategyPaperTrade(request: Request) {
   }
 
   try {
+    await requireStrategyAuth(request, body);
     const backtest = body.backtest ?? (await createBacktestFromBody(body, request));
     const chain = readProductChainId(body.chain ?? backtest.chain);
     const paperTrade = buildPaperTrade({
@@ -119,6 +128,7 @@ export async function handleStrategyScanPairs(request: Request) {
   }
 
   try {
+    await requireStrategyAuth(request, body);
     const source = await fetchStrategyBarsFromDune({
       queryId: readOptionalString(body.queryId),
       signal: request.signal,
@@ -198,6 +208,10 @@ async function readStrategyBody(
 }
 
 function strategyErrorResponse(error: unknown) {
+  if (error instanceof AccountAuthError) {
+    return accountAuthErrorResponse(error, { configured: false });
+  }
+
   const message =
     error instanceof Error ? error.message : "Strategy request failed.";
   const status =
@@ -212,6 +226,13 @@ function strategyErrorResponse(error: unknown) {
     },
     { status }
   );
+}
+
+function requireStrategyAuth(request: Request, body: StrategyBody) {
+  return requireAccountAuth({
+    request,
+    wallet: body.wallet ?? {},
+  });
 }
 
 function readOptionalString(value: unknown) {

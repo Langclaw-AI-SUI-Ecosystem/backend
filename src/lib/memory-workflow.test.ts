@@ -270,6 +270,7 @@ test("prioritizes the main Walrus memory blob when handoff storage is slow", asy
         LANGCLAW_LOCAL_STATE_DIR: dir,
         PRIVATE_MEMORY_ANCILLARY_TIMEOUT_MS: "5",
         PRIVATE_MEMORY_STORAGE_TIMEOUT_MS: "500",
+        SEAL_ENCRYPTION_KEY: "test-seal-key",
         WALRUS_AGGREGATOR_URL: "https://aggregator.example.test",
         WALRUS_PUBLISHER_URL: "https://publisher.example.test",
         WALRUS_TIMEOUT_MS: "100",
@@ -317,6 +318,7 @@ test("times out when the Walrus publisher never responds", async () => {
     await withEnv(
       {
         LANGCLAW_LOCAL_STATE_DIR: dir,
+        SEAL_ENCRYPTION_KEY: "test-seal-key",
         WALRUS_AGGREGATOR_URL: "https://aggregator.example.test",
         WALRUS_PUBLISHER_URL: "https://publisher.example.test",
         WALRUS_TIMEOUT_MS: "5",

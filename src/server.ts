@@ -5,7 +5,6 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { Readable } from "node:stream";
 import { once } from "node:events";
 
 import { handleChatSessions } from "./routes/chat-sessions";
@@ -90,6 +89,10 @@ const routes = new Map<string, RouteHandler>([
 
 const port = readPort(process.env.PORT, 3001);
 const host = process.env.HOST || "0.0.0.0";
+const maxRequestBodyBytes = readPositiveInteger(
+  process.env.LANGCLAW_MAX_REQUEST_BODY_BYTES,
+  1024 * 1024,
+);
 
 const server = createServer((request, response) => {
   void handleRequest(request, response);
@@ -128,7 +131,7 @@ async function handleRequest(
       const slug = decodeURIComponent(
         url.pathname.slice("/api/automation/webhooks/".length)
       );
-      const webRequest = createWebRequest(request, url);
+      const webRequest = await createWebRequest(request, url);
       const webResponse = await handleAutomationWebhook(webRequest, slug);
       await writeWebResponse(response, webResponse);
       return;
@@ -145,7 +148,7 @@ async function handleRequest(
       return;
     }
 
-    const webRequest = createWebRequest(request, url);
+    const webRequest = await createWebRequest(request, url);
     const webResponse = await handler(webRequest);
     await writeWebResponse(response, webResponse);
   } catch (error) {
@@ -155,6 +158,17 @@ async function handleRequest(
     }
 
     setCorsHeaders(request, response);
+    if (error instanceof RequestBodyTooLargeError) {
+      await writeWebResponse(
+        response,
+        Response.json(
+          { error: `Request body exceeds ${maxRequestBodyBytes} bytes.` },
+          { status: 413 },
+        ),
+      );
+      return;
+    }
+
     await writeWebResponse(
       response,
       Response.json(
@@ -168,7 +182,9 @@ async function handleRequest(
   }
 }
 
-function createWebRequest(request: IncomingMessage, url: URL) {
+class RequestBodyTooLargeError extends Error {}
+
+async function createWebRequest(request: IncomingMessage, url: URL) {
   const headers = new Headers();
 
   for (const [name, value] of Object.entries(request.headers)) {
@@ -182,18 +198,48 @@ function createWebRequest(request: IncomingMessage, url: URL) {
   const controller = new AbortController();
   request.on("aborted", () => controller.abort());
 
-  const init: RequestInit & { duplex?: "half" } = {
+  const init: RequestInit = {
     headers,
     method: request.method,
     signal: controller.signal,
   };
 
   if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = Readable.toWeb(request) as ReadableStream<Uint8Array>;
-    init.duplex = "half";
+    init.body = await readRequestBody(request);
   }
 
   return new Request(url, init);
+}
+
+async function readRequestBody(request: IncomingMessage) {
+  const declaredLength = readContentLength(request);
+
+  if (declaredLength > maxRequestBodyBytes) {
+    throw new RequestBodyTooLargeError();
+  }
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+
+    if (total > maxRequestBodyBytes) {
+      throw new RequestBodyTooLargeError();
+    }
+
+    chunks.push(buffer);
+  }
+
+  return Buffer.concat(chunks, total);
+}
+
+function readContentLength(request: IncomingMessage) {
+  const value = readHeader(request.headers["content-length"]);
+  const parsed = Number.parseInt(value || "", 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
 async function writeWebResponse(
@@ -316,6 +362,10 @@ function readHeader(value: string | string[] | undefined) {
 }
 
 function readPort(value: string | undefined, fallback: number) {
+  return readPositiveInteger(value, fallback);
+}
+
+function readPositiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value || "", 10);
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;

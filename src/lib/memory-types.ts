@@ -121,6 +121,7 @@ export type SealEnvelope = {
   sealIdentity?: string;
   sealKeyServerCount?: number;
   // local-envelope mode (offline AES-256-GCM fallback)
+  aadVersion?: 1;
   algorithm?: "aes-256-gcm";
   iv?: string;
   authTag?: string;

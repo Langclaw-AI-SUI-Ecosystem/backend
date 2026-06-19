@@ -4,7 +4,6 @@ import { formatUnits } from "viem";
 
 import {
   AccountAuthError,
-  createVerifiedWalletAccount,
   requireAccountAuth,
   requireWalletAccount,
   type AccountAuthInput,
@@ -18,7 +17,6 @@ import {
   type ProductChainId,
 } from "./chain-config";
 import {
-  createWalletSessionForVerifiedAddress,
   normalizeSuiAddress,
   type WalletAuthInput,
 } from "./server/wallet-auth";
@@ -565,6 +563,7 @@ export async function verifyUsageDeposit({
   wallet: WalletAuthInput;
 }) {
   const chain = getProductChain(chainInput);
+  const context = await requireWalletUsageContext(walletInput);
   const hash = readTxHash(txHash);
   const { packageId } = readUsageVaultConfig(chain);
   const rpcUrl =
@@ -609,17 +608,6 @@ export async function verifyUsageDeposit({
   if (!payerAddress) {
     throw new UsageHttpError(400, "Deposit event payer is invalid.");
   }
-
-  const claimedAddress = normalizeDepositAddress(walletInput.address);
-
-  if (claimedAddress && claimedAddress !== payerAddress) {
-    throw new UsageHttpError(403, "Wallet mismatch.");
-  }
-
-  const { context, walletSession } = await resolveDepositUsageContext(
-    walletInput,
-    payerAddress
-  );
 
   if (normalizeDepositAddress(context.wallet.address) !== payerAddress) {
     throw new UsageHttpError(403, "Deposit event wallet mismatch.");
@@ -668,7 +656,6 @@ export async function verifyUsageDeposit({
     configured: true,
     nativeSymbol: chain.billingCurrency.symbol,
     wallet: context.wallet.address,
-    walletSession,
     txHash: hash,
     amountNeuron,
     amount0G: formatBillingAmount(BigInt(amountNeuron), chain),
@@ -1012,41 +999,6 @@ async function requireWalletUsageContext(walletInput: WalletAuthInput) {
   } catch (error) {
     throw mapUsageAuthError(error);
   }
-}
-
-async function resolveDepositUsageContext(
-  walletInput: WalletAuthInput,
-  txSender: string
-) {
-  if (hasReusableWalletAuth(walletInput)) {
-    const context = await requireWalletUsageContext(walletInput);
-
-    if (normalizeDepositAddress(context.wallet.address) !== txSender) {
-      throw new UsageHttpError(403, "Wallet mismatch.");
-    }
-
-    return { context, walletSession: undefined };
-  }
-
-  const walletSession = createWalletSessionForVerifiedAddress(txSender);
-  const account = await createVerifiedWalletAccount(walletSession);
-
-  return {
-    context: {
-      supabase: account.supabase,
-      wallet: { address: account.walletUser.walletAddress },
-      walletUser: { id: account.walletUser.id },
-    },
-    walletSession,
-  };
-}
-
-function hasReusableWalletAuth(walletInput: WalletAuthInput) {
-  return Boolean(
-    walletInput.sessionToken ||
-      (typeof walletInput.message === "string" &&
-        typeof walletInput.signature === "string")
-  );
 }
 
 async function ensureUsageAccount(

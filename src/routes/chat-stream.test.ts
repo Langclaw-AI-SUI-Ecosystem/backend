@@ -310,36 +310,39 @@ test("developer mode skips usage reservation for research prompts", async () => 
   });
 
   try {
-    await withEnv(authEnv, async () => {
-      const response = await handleChatStream(
-        new Request("http://localhost/api/chat/stream", {
-          body: JSON.stringify({
-            message: "Detect liquidity anomalies on Mantle DEX pairs",
-            toolMode: "research",
-            wallet: await buildTestWallet(),
-          }),
-          method: "POST",
-        })
-      );
-      const events = await readNdjson(response);
-      const result = events.find((event) => event.type === "result");
-      const payload = result?.payload as
-        | {
-            usage?: {
-              chargedNeuron?: string;
-              reservedNeuron?: string;
-              status?: string;
-            };
-          }
-        | undefined;
+    await withEnv(
+      { ...authEnv, LANGCLAW_ALLOW_DEVELOPER_MODE: "true" },
+      async () => {
+        const response = await handleChatStream(
+          new Request("http://localhost/api/chat/stream", {
+            body: JSON.stringify({
+              message: "Detect liquidity anomalies on Mantle DEX pairs",
+              toolMode: "research",
+              wallet: await buildTestWallet(),
+            }),
+            method: "POST",
+          })
+        );
+        const events = await readNdjson(response);
+        const result = events.find((event) => event.type === "result");
+        const payload = result?.payload as
+          | {
+              usage?: {
+                chargedNeuron?: string;
+                reservedNeuron?: string;
+                status?: string;
+              };
+            }
+          | undefined;
 
-      assert.equal(response.status, 200);
-      assert.equal(reserveCalled, false);
-      assert.equal(finalizeCalled, false);
-      assert.equal(payload?.usage?.reservedNeuron, "0");
-      assert.equal(payload?.usage?.chargedNeuron, "0");
-      assert.equal(payload?.usage?.status, "estimated");
-    });
+        assert.equal(response.status, 200);
+        assert.equal(reserveCalled, false);
+        assert.equal(finalizeCalled, false);
+        assert.equal(payload?.usage?.reservedNeuron, "0");
+        assert.equal(payload?.usage?.chargedNeuron, "0");
+        assert.equal(payload?.usage?.status, "estimated");
+      }
+    );
   } finally {
     restore();
   }

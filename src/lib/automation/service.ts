@@ -101,6 +101,13 @@ export function automationErrorResponse(error: unknown) {
   );
 }
 
+export function isAutomationDeveloperModeAllowed() {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.LANGCLAW_ALLOW_DEVELOPER_MODE === "true"
+  );
+}
+
 export async function readAutomationDashboard(
   authInput: AccountAuthInput
 ): Promise<AutomationDashboard> {
@@ -336,13 +343,14 @@ export async function updateAutomationSettings(
 ) {
   const context = await requireAutomationContext(authInput);
   const settings = normalizeSettingsInput(input);
+  const developerModeEnabled = effectiveDeveloperModeEnabled(settings.developerModeEnabled);
   const { data, error } = await context.supabase
     .from("langclaw_automation_settings")
     .upsert(
       {
         auto_pause_repeated_failures: settings.autoPauseRepeatedFailures,
         daily_limit_neuron: parse0GToNeuron(settings.dailyLimit0G),
-        developer_mode_enabled: settings.developerModeEnabled,
+        developer_mode_enabled: developerModeEnabled,
         failure_notification: settings.failureNotification,
         limit_behavior: settings.limitBehavior,
         low_balance_threshold_neuron: parse0GToNeuron(
@@ -877,7 +885,7 @@ async function runTaskWithRetries(
   const prompt = buildTaskPrompt(task, triggerPayload);
   const attemptErrors: string[] = [];
   const settings = await readAutomationSettingsRow(context);
-  const developerModeEnabled = settings.developer_mode_enabled;
+  const developerModeEnabled = effectiveDeveloperModeEnabled(settings.developer_mode_enabled);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     let reservation: UsageReservation | undefined;
@@ -1305,7 +1313,7 @@ async function readGuardrailDecision(
     };
   }
 
-  if (settings.developer_mode_enabled) {
+  if (effectiveDeveloperModeEnabled(settings.developer_mode_enabled)) {
     return {
       allowed: true,
       note: "Developer mode bypassed usage-credit guardrails.",
@@ -1774,7 +1782,7 @@ function rowToSettings(row: AutomationSettingsRow): AutomationSettings {
   return {
     autoPauseRepeatedFailures: row.auto_pause_repeated_failures,
     dailyLimit0G: formatNeuronAs0G(BigInt(readDecimalString(row.daily_limit_neuron))),
-    developerModeEnabled: row.developer_mode_enabled,
+    developerModeEnabled: effectiveDeveloperModeEnabled(row.developer_mode_enabled),
     failureNotification: row.failure_notification,
     limitBehavior: row.limit_behavior,
     lowBalanceThreshold0G: formatNeuronAs0G(
@@ -1796,6 +1804,10 @@ function rowToSettings(row: AutomationSettingsRow): AutomationSettings {
     thresholdAction: row.threshold_action,
     writeRunLogsToMemory: row.write_run_logs_to_memory,
   };
+}
+
+function effectiveDeveloperModeEnabled(value: boolean) {
+  return value && isAutomationDeveloperModeAllowed();
 }
 
 function normalizeTaskInput(

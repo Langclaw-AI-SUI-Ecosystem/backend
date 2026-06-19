@@ -174,10 +174,7 @@ export async function readAccountTelegramLinkStatus(
 export async function requireTelegramLinkedAccount(
   account: AuthenticatedAccount
 ): Promise<AuthenticatedAccount> {
-  // The Telegram link is an optional automation feature, not a gate on research
-  // runs. Enforce it only when explicitly opted in so the Sui+Walrus demo flows
-  // with just a wallet signature.
-  if (process.env.LANGCLAW_REQUIRE_TELEGRAM !== "true") {
+  if (!isTelegramLinkRequired()) {
     return account;
   }
 
@@ -192,6 +189,18 @@ export async function requireTelegramLinkedAccount(
   }
 
   return account;
+}
+
+export function isTelegramLinkRequired() {
+  if (process.env.LANGCLAW_REQUIRE_TELEGRAM === "true") {
+    return true;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    return process.env.LANGCLAW_REQUIRE_TELEGRAM !== "false";
+  }
+
+  return false;
 }
 
 export function requireSupabaseAdmin() {

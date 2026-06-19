@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { handleAutomationWebhook } from "./automation";
+import {
+  handleAutomationTelegramWebhook,
+  handleAutomationWebhook,
+} from "./automation";
+import { withEnv } from "../test/helpers";
 
 test("automation webhook rejects oversized payloads before execution", async () => {
   const body = JSON.stringify({ payload: "x".repeat(65 * 1024) });
@@ -41,4 +45,43 @@ test("automation webhook rate limits repeated slug attempts", async () => {
 
   assert.equal(lastResponse.status, 429);
   assert.equal(lastResponse.headers.has("Retry-After"), true);
+});
+
+test("automation webhook rejects invalid slugs before rate bucket allocation", async () => {
+  const response = await handleAutomationWebhook(
+    new Request("http://localhost/api/automation/webhooks/../../bad", {
+      method: "POST",
+    }),
+    "../../bad"
+  );
+
+  assert.equal(response.status, 400);
+});
+
+test("Telegram webhook requires the configured secret token", async () => {
+  await withEnv(
+    { LANGCLAW_TELEGRAM_WEBHOOK_SECRET_TOKEN: "telegram-secret" },
+    async () => {
+      const missing = await handleAutomationTelegramWebhook(
+        new Request("http://localhost/api/automation/telegram/webhook", {
+          body: JSON.stringify({ message: { text: "9A3A093A29" } }),
+          method: "POST",
+        })
+      );
+
+      assert.equal(missing.status, 401);
+
+      const accepted = await handleAutomationTelegramWebhook(
+        new Request("http://localhost/api/automation/telegram/webhook", {
+          body: JSON.stringify({ message: { text: "9A3A093A29" } }),
+          headers: {
+            "X-Telegram-Bot-Api-Secret-Token": "telegram-secret",
+          },
+          method: "POST",
+        })
+      );
+
+      assert.notEqual(accepted.status, 401);
+    }
+  );
 });

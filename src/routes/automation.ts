@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import type { WalletAuthInput } from "../lib/server/wallet-auth";
 import {
   automationErrorResponse,
@@ -49,6 +51,7 @@ const AUTOMATION_WEBHOOK_BODY_LIMIT_BYTES = 64 * 1024;
 const WEBHOOK_CLIENT_RATE_LIMIT = 120;
 const WEBHOOK_SLUG_RATE_LIMIT = 30;
 const WEBHOOK_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const WEBHOOK_RATE_LIMIT_MAX_BUCKETS = 5_000;
 const webhookRateLimits = new Map<
   string,
   {
@@ -329,6 +332,12 @@ export async function handleAutomationWebhook(request: Request, slug: string) {
 }
 
 export async function handleAutomationTelegramWebhook(request: Request) {
+  const secretResponse = requireTelegramWebhookSecret(request);
+
+  if (secretResponse) {
+    return secretResponse;
+  }
+
   let update: unknown;
 
   try {
@@ -413,6 +422,12 @@ async function readOptionalJsonBody(
 }
 
 function checkAutomationWebhookRateLimit(request: Request, slug: string) {
+  const normalizedSlug = normalizeWebhookSlugForRateLimit(slug);
+
+  if (!normalizedSlug) {
+    return Response.json({ error: "A valid webhook slug is required." }, { status: 400 });
+  }
+
   const clientId = readWebhookClientId(request);
   const clientLimit = incrementWebhookRateLimit(
     `client:${clientId}`,
@@ -424,14 +439,20 @@ function checkAutomationWebhookRateLimit(request: Request, slug: string) {
   }
 
   return incrementWebhookRateLimit(
-    `client-slug:${clientId}:${slug.toLowerCase()}`,
+    `client-slug:${clientId}:${normalizedSlug}`,
     WEBHOOK_SLUG_RATE_LIMIT
   );
 }
 
 function incrementWebhookRateLimit(key: string, limit: number) {
   const now = Date.now();
+  pruneExpiredWebhookRateLimits(now);
   const current = webhookRateLimits.get(key);
+
+  if (!current) {
+    evictWebhookRateLimitBuckets();
+  }
+
   const bucket =
     current && current.resetAt > now
       ? current
@@ -458,10 +479,14 @@ function incrementWebhookRateLimit(key: string, limit: number) {
 }
 
 function readWebhookClientId(request: Request) {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip")?.trim() ||
-    "unknown"
+  if (!trustedProxyHeadersEnabled()) {
+    return "direct";
+  }
+
+  return cleanClientIp(
+    request.headers.get("cf-connecting-ip")?.trim() ||
+      request.headers.get("x-real-ip")?.trim() ||
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
   );
 }
 
@@ -477,4 +502,86 @@ function readTriggeredBy(value: unknown): AutomationTriggeredBy {
   }
 
   return "manual";
+}
+
+function requireTelegramWebhookSecret(request: Request) {
+  const configured =
+    process.env.LANGCLAW_TELEGRAM_WEBHOOK_SECRET_TOKEN?.trim() ||
+    process.env.LANGCLAW_TELEGRAM_WEBHOOK_SECRET?.trim();
+
+  if (!configured) {
+    if (
+      process.env.NODE_ENV === "production" &&
+      process.env.LANGCLAW_TELEGRAM_BOT_TOKEN?.trim()
+    ) {
+      return Response.json(
+        { error: "LANGCLAW_TELEGRAM_WEBHOOK_SECRET_TOKEN is required." },
+        { status: 503 }
+      );
+    }
+
+    return null;
+  }
+
+  const supplied = request.headers.get("x-telegram-bot-api-secret-token")?.trim();
+
+  if (!supplied || !safeEqual(supplied, configured)) {
+    return Response.json({ error: "Invalid Telegram webhook secret." }, { status: 401 });
+  }
+
+  return null;
+}
+
+function normalizeWebhookSlugForRateLimit(slug: string) {
+  const normalized = slug.trim().toLowerCase();
+
+  return /^[a-z0-9][a-z0-9-]{0,95}$/.test(normalized) ? normalized : null;
+}
+
+function pruneExpiredWebhookRateLimits(now: number) {
+  for (const [key, bucket] of webhookRateLimits) {
+    if (bucket.resetAt <= now) {
+      webhookRateLimits.delete(key);
+    }
+  }
+}
+
+function evictWebhookRateLimitBuckets() {
+  const maxBuckets = readWebhookRateLimitMaxBuckets();
+
+  while (webhookRateLimits.size >= maxBuckets) {
+    const oldest = webhookRateLimits.keys().next().value;
+
+    if (!oldest) {
+      return;
+    }
+
+    webhookRateLimits.delete(oldest);
+  }
+}
+
+function readWebhookRateLimitMaxBuckets() {
+  const parsed = Number(process.env.LANGCLAW_WEBHOOK_RATE_LIMIT_MAX_BUCKETS);
+
+  return Number.isSafeInteger(parsed) && parsed >= 1
+    ? parsed
+    : WEBHOOK_RATE_LIMIT_MAX_BUCKETS;
+}
+
+function trustedProxyHeadersEnabled() {
+  return process.env.LANGCLAW_TRUST_PROXY_HEADERS === "true";
+}
+
+function cleanClientIp(value: string | undefined) {
+  return value && value.length <= 128 ? value : "unknown";
+}
+
+function safeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    timingSafeEqual(leftBuffer, rightBuffer)
+  );
 }

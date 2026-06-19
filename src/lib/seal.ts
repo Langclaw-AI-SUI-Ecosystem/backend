@@ -6,6 +6,7 @@ import type {
   SealEnvelope,
   SealMode,
 } from "./memory-types";
+import { stableStringify } from "./stable-json";
 
 export type SealIntegrationStatus = {
   mode: SealMode;
@@ -40,6 +41,8 @@ type SealKeyServerConfig = {
 };
 
 type SealNetwork = "testnet" | "mainnet" | "devnet" | "localnet";
+
+const localEnvelopeAadVersion = 1;
 
 export class SealAccessDeniedError extends Error {
   constructor() {
@@ -118,7 +121,8 @@ export async function probeSealKeyServers(): Promise<SealRuntimeProbe> {
         `0x${"00".repeat(32)}`,
         config
       ),
-      getSealEncryptTimeoutMs()
+      getSealEncryptTimeoutMs(),
+      "encryption"
     );
 
     return {
@@ -141,19 +145,27 @@ export async function encryptPrivateMemory(
   ownerAddress: string
 ): Promise<SealEnvelope> {
   const config = readSealConfig();
+  const status = getSealIntegrationStatus();
   const plaintext = Buffer.from(JSON.stringify(artifact), "utf8");
 
-  if (getSealIntegrationStatus().mode === "seal-sdk-configured") {
+  if (status.mode === "seal-sdk-configured") {
     try {
       return await withSealTimeout(
         encryptWithSeal(plaintext, ownerAddress, config),
-        getSealEncryptTimeoutMs()
+        getSealEncryptTimeoutMs(),
+        "encryption"
       );
     } catch (error) {
       if (isSealStrictMode(config)) {
         throw error;
       }
     }
+  }
+
+  if (!config.mockMode && isSealStrictMode(config)) {
+    throw new Error(
+      `Seal strict mode requires configured Seal SDK key servers; missing ${status.missing.join(", ") || "Seal configuration"}.`
+    );
   }
 
   return encryptWithLocalEnvelope(plaintext, ownerAddress);
@@ -176,10 +188,14 @@ export async function decryptPrivateMemory(
   }
 
   if (envelope.sealMode === "seal-sdk-configured") {
-    return decryptWithSeal(envelope, session);
+    return withSealTimeout(
+      decryptWithSeal(envelope, session),
+      getSealDecryptTimeoutMs(),
+      "decryption"
+    );
   }
 
-  return decryptWithLocalEnvelope(envelope);
+  return decryptWithLocalEnvelope(envelope, requesterAddress);
 }
 
 // --- Seal SDK mode (real threshold encryption + on-chain access control) ---
@@ -275,17 +291,7 @@ export function encryptAgentHandoff(value: unknown): SealEnvelope {
 }
 
 export function decryptAgentHandoff<T>(envelope: SealEnvelope): T {
-  if (!envelope.iv || !envelope.authTag || !envelope.ciphertext) {
-    throw new Error("Agent handoff envelope is missing AES fields.");
-  }
-
-  const key = readEncryptionKey();
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
-  decipher.setAuthTag(Buffer.from(envelope.authTag, "base64"));
-  const plaintext = Buffer.concat([
-    decipher.update(Buffer.from(envelope.ciphertext, "base64")),
-    decipher.final(),
-  ]);
+  const plaintext = decryptLocalEnvelopePayload(envelope);
 
   return JSON.parse(plaintext.toString("utf8")) as T;
 }
@@ -293,20 +299,25 @@ export function decryptAgentHandoff<T>(envelope: SealEnvelope): T {
 // --- Local envelope mode (offline AES-256-GCM fallback, owner-gated) ---
 
 function encryptWithLocalEnvelope(plaintext: Buffer, ownerAddress: string): SealEnvelope {
+  const config = readSealConfig();
   const key = readEncryptionKey();
   const iv = randomBytes(12);
+  const normalizedOwner = normalizeOwner(ownerAddress);
+  const sealPolicyId = getSealPolicyId();
   const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(buildLocalEnvelopeAad(normalizedOwner, sealPolicyId));
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
   return {
     schema: "langclaw.seal-envelope.v1",
-    ownerAddress: normalizeOwner(ownerAddress),
-    sealPolicyId: getSealPolicyId(),
+    ownerAddress: normalizedOwner,
+    sealPolicyId,
     sealMode: "local-envelope",
-    sealPackageId: readSealConfig().packageId,
-    sealIdentity: buildSealIdentity(ownerAddress),
-    sealKeyServerCount: readSealConfig().keyServerConfigs.length,
+    sealPackageId: config.packageId,
+    sealIdentity: `${sealPolicyId}:${normalizedOwner}`,
+    sealKeyServerCount: config.keyServerConfigs.length,
+    aadVersion: localEnvelopeAadVersion,
     algorithm: "aes-256-gcm",
     iv: iv.toString("base64"),
     authTag: authTag.toString("base64"),
@@ -315,20 +326,45 @@ function encryptWithLocalEnvelope(plaintext: Buffer, ownerAddress: string): Seal
   };
 }
 
-function decryptWithLocalEnvelope(envelope: SealEnvelope): PrivateMemoryArtifact {
+function decryptWithLocalEnvelope(
+  envelope: SealEnvelope,
+  requesterAddress: string
+): PrivateMemoryArtifact {
+  const plaintext = decryptLocalEnvelopePayload(envelope);
+  const artifact = JSON.parse(plaintext.toString("utf8")) as PrivateMemoryArtifact;
+  const artifactOwner =
+    artifact && typeof artifact.ownerAddress === "string" ? artifact.ownerAddress : undefined;
+
+  if (!artifactOwner) {
+    throw new Error("Local Seal artifact is missing its owner address.");
+  }
+
+  if (
+    normalizeOwner(artifactOwner) !== normalizeOwner(envelope.ownerAddress) ||
+    normalizeOwner(artifactOwner) !== normalizeOwner(requesterAddress)
+  ) {
+    throw new SealAccessDeniedError();
+  }
+
+  return artifact;
+}
+
+function decryptLocalEnvelopePayload(envelope: SealEnvelope): Buffer {
   if (!envelope.iv || !envelope.authTag || !envelope.ciphertext) {
     throw new Error("Local Seal envelope is missing fields required for decryption.");
   }
 
   const key = readEncryptionKey();
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
+  if (envelope.aadVersion === localEnvelopeAadVersion) {
+    decipher.setAAD(buildLocalEnvelopeAad(envelope.ownerAddress, envelope.sealPolicyId));
+  }
   decipher.setAuthTag(Buffer.from(envelope.authTag, "base64"));
-  const plaintext = Buffer.concat([
+
+  return Buffer.concat([
     decipher.update(Buffer.from(envelope.ciphertext, "base64")),
     decipher.final(),
   ]);
-
-  return JSON.parse(plaintext.toString("utf8")) as PrivateMemoryArtifact;
 }
 
 // --- shared helpers ---
@@ -347,12 +383,23 @@ function sealIdentity(ownerAddress: string) {
 
 function readEncryptionKey() {
   const configured = process.env.SEAL_ENCRYPTION_KEY?.trim();
+
+  if (!configured && localEnvelopeKeyRequired()) {
+    throw new Error(
+      "SEAL_ENCRYPTION_KEY is required for local Seal envelope storage outside offline development."
+    );
+  }
+
   const secret = configured || "langclaw-local-seal-development-key";
 
   return createHash("sha256").update(secret).digest();
 }
 
-async function withSealTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withSealTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operation: "encryption" | "decryption"
+): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
@@ -360,7 +407,7 @@ async function withSealTimeout<T>(promise: Promise<T>, timeoutMs: number): Promi
       promise,
       new Promise<T>((_resolve, reject) => {
         timeout = setTimeout(
-          () => reject(new Error(`Seal encryption timed out after ${timeoutMs}ms.`)),
+          () => reject(new Error(`Seal ${operation} timed out after ${timeoutMs}ms.`)),
           timeoutMs
         );
       }),
@@ -378,15 +425,40 @@ function getSealEncryptTimeoutMs() {
   return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 15_000;
 }
 
+function getSealDecryptTimeoutMs() {
+  const parsed = Number(process.env.SEAL_DECRYPT_TIMEOUT_MS);
+
+  if (Number.isFinite(parsed) && parsed >= 1) {
+    return Math.floor(parsed);
+  }
+
+  return getSealEncryptTimeoutMs();
+}
+
+function localEnvelopeKeyRequired() {
+  return (
+    process.env.NODE_ENV === "production" ||
+    Boolean(process.env.WALRUS_PUBLISHER_URL?.trim()) ||
+    process.env.SEAL_MOCK_MODE === "false"
+  );
+}
+
+function buildLocalEnvelopeAad(ownerAddress: string, sealPolicyId: string) {
+  return Buffer.from(
+    stableStringify({
+      aadVersion: localEnvelopeAadVersion,
+      ownerAddress: normalizeOwner(ownerAddress),
+      sealPolicyId,
+    }),
+    "utf8"
+  );
+}
+
 function normalizeOwner(address: string) {
   const trimmed = address.trim().toLowerCase();
   const hex = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
 
   return `0x${hex.padStart(64, "0")}`;
-}
-
-function buildSealIdentity(ownerAddress: string) {
-  return `${getSealPolicyId()}:${normalizeOwner(ownerAddress)}`;
 }
 
 type SealConfig = {

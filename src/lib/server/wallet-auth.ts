@@ -65,11 +65,18 @@ const SUI_CHAIN_ID_PLACEHOLDER = 0;
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const SESSION_TOKEN_PREFIX = "lws_v1";
+const CHALLENGE_RATE_WINDOW_MS = 60 * 1000;
+const DEFAULT_CHALLENGE_MAX_PER_MINUTE = 600;
+const DEFAULT_CHALLENGE_MAX_PENDING = 2_000;
 const allowedPurposes = new Set<WalletAuthPurpose>([
   "api-key:create",
   "session",
 ]);
 const challenges = new Map<string, WalletChallengeRecord>();
+let challengeWindow = {
+  count: 0,
+  resetAt: 0,
+};
 
 export function createWalletChallenge({
   address,
@@ -87,6 +94,7 @@ export function createWalletChallenge({
   const challengeChainId = readChainId(chainId);
   const network = readSuiNetwork(process.env.SUI_NETWORK);
   const now = Date.now();
+  reserveChallengeSlot(now);
   const issuedAt = new Date(now).toISOString();
   const expiresAtMs = now + CHALLENGE_TTL_MS;
   const expiresAt = new Date(expiresAtMs).toISOString();
@@ -120,7 +128,6 @@ export function createWalletChallenge({
     uri,
   };
 
-  pruneExpiredChallenges(now);
   challenges.set(nonce, challenge);
 
   return publicChallenge(challenge);
@@ -154,11 +161,10 @@ export async function verifyWalletSession(
   const message = wallet.message;
   const signature = wallet.signature;
 
-  // Demo signatures: a local-dev convenience that skips cryptographic
-  // verification but still binds the signed message to the wallet. Enabled
-  // unless LANGCLAW_ALLOW_DEMO_SIGNATURES is explicitly "false".
+  // Demo signatures are a local-dev convenience only. They must never be a
+  // production fallback because they skip cryptographic signature verification.
   if (signature.startsWith("demo:")) {
-    if (process.env.LANGCLAW_ALLOW_DEMO_SIGNATURES === "false") {
+    if (!demoSignaturesAllowed()) {
       return null;
     }
 
@@ -217,17 +223,6 @@ export async function verifyWalletSession(
     purpose: challenge.purpose,
     ...issueSession(address, options),
     signature,
-  };
-}
-
-export function createWalletSessionForVerifiedAddress(address: string): VerifiedWallet {
-  const suiAddress = readSuiAddressOrThrow(address);
-
-  return {
-    address: suiAddress,
-    authMethod: "session",
-    purpose: "session",
-    ...issueSession(suiAddress, { requiredPurpose: "session" }),
   };
 }
 
@@ -392,6 +387,13 @@ function readSessionSecret() {
   return "langclaw-dev-wallet-session-secret";
 }
 
+function demoSignaturesAllowed() {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.LANGCLAW_ALLOW_DEMO_SIGNATURES === "true"
+  );
+}
+
 function consumeChallenge(nonce: string) {
   pruneExpiredChallenges();
   const challenge = challenges.get(nonce);
@@ -415,6 +417,37 @@ function pruneExpiredChallenges(now = Date.now()) {
       challenges.delete(nonce);
     }
   }
+}
+
+function reserveChallengeSlot(now: number) {
+  pruneExpiredChallenges(now);
+
+  const maxPending = readNonNegativeIntegerEnv(
+    process.env.LANGCLAW_WALLET_CHALLENGE_MAX_PENDING,
+    DEFAULT_CHALLENGE_MAX_PENDING
+  );
+
+  if (challenges.size >= maxPending) {
+    throw new WalletAuthError(429, "Too many wallet challenge requests.");
+  }
+
+  if (challengeWindow.resetAt <= now) {
+    challengeWindow = {
+      count: 0,
+      resetAt: now + CHALLENGE_RATE_WINDOW_MS,
+    };
+  }
+
+  const maxPerMinute = readNonNegativeIntegerEnv(
+    process.env.LANGCLAW_WALLET_CHALLENGE_MAX_PER_MINUTE,
+    DEFAULT_CHALLENGE_MAX_PER_MINUTE
+  );
+
+  if (challengeWindow.count >= maxPerMinute) {
+    throw new WalletAuthError(429, "Too many wallet challenge requests.");
+  }
+
+  challengeWindow.count += 1;
 }
 
 function publicChallenge(challenge: WalletChallengeRecord): WalletChallenge {
@@ -516,4 +549,14 @@ function readMessageField(message: string, field: string) {
     .find((line) => line.startsWith(`${field}: `))
     ?.replace(`${field}: `, "")
     .trim();
+}
+
+function readNonNegativeIntegerEnv(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+
+  if (Number.isSafeInteger(parsed) && parsed >= 0) {
+    return parsed;
+  }
+
+  return fallback;
 }

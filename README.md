@@ -346,6 +346,8 @@ SEAL_PACKAGE_ID=0x7f3578ebe174b0343cd96391b2a1c75d5db4ad82c793650b3950bdb5634192
 SEAL_KEY_SERVER_OBJECT_IDS=0x86b608dcb3fcb9c629cfe6d865681977d1decb219a2eb98eb6058b87377feaf3
 SEAL_STRICT_MODE=true
 SEAL_THRESHOLD=1
+SEAL_ENCRYPTION_KEY=<random_secret_for_agent_handoffs_and_local_fallback>
+SEAL_DECRYPT_TIMEOUT_MS=15000
 ```
 
 Self-host Open mode uses the same backend env shape. Register an independent
@@ -371,9 +373,10 @@ repository.
 > registry's **first-version / original-publish** package id
 > from the mainnet publish, not a later upgraded runtime id. Seal rejects a
 > non-first-version package and `MemoryRecorded` events are typed by the defining
-> package. Set `SEAL_MOCK_MODE=true` (or omit the key server config) to
-> fall back to the offline `local-envelope` AES mode, and
-> `SUI_MEMORY_RECALL_FROM_CHAIN=false` to disable chain recall.
+> package. Set `SEAL_MOCK_MODE=true` for offline `local-envelope` AES mode, set
+> `SEAL_ENCRYPTION_KEY` before storing local envelopes outside offline
+> development, and set `SUI_MEMORY_RECALL_FROM_CHAIN=false` to disable chain
+> recall.
 
 ## Smart Contracts
 

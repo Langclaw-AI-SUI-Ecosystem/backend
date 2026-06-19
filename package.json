@@ -31,15 +31,17 @@
     "@mysten/walrus": "latest",
     "@supabase/supabase-js": "^2.105.4",
     "dotenv": "^17.4.2",
-    "viem": "latest"
+    "viem": "^2.52.2"
   },
   "devDependencies": {
     "@types/node": "latest",
-    "tsx": "latest",
+    "tsx": "^4.22.4",
     "typescript": "latest"
   },
   "overrides": {
     "axios": "^1.16.1",
-    "tmp": "^0.2.5"
+    "esbuild": "^0.28.1",
+    "tmp": "^0.2.5",
+    "ws": "^8.21.0"
   }
 }
