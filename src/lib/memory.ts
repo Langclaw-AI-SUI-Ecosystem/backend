@@ -33,6 +33,7 @@ export type MemoryStats = {
   disabled: number;
   projectScoped: number;
   total: number;
+  verifiable: number;
 };
 
 export type MemorySettings = {
@@ -143,7 +144,7 @@ export async function readMemoryDashboard(
     configured: true,
     memories,
     settings,
-    stats: buildMemoryStats(memories),
+    stats: buildMemoryStats(memories, verifiableMemories.length),
     verifiableMemories,
   };
 }
@@ -462,12 +463,16 @@ function rowToMemorySettings(row: MemorySettingsRow): MemorySettings {
   };
 }
 
-function buildMemoryStats(memories: MemoryItem[]): MemoryStats {
+export function buildMemoryStats(
+  memories: MemoryItem[],
+  verifiable = 0
+): MemoryStats {
   return {
     active: memories.filter((memory) => memory.status === "active").length,
     disabled: memories.filter((memory) => memory.status === "disabled").length,
     projectScoped: memories.filter((memory) => memory.scope !== "Global").length,
     total: memories.length,
+    verifiable,
   };
 }
 
