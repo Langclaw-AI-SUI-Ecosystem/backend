@@ -5,6 +5,7 @@ import type { MemoryIndexRecord } from "./memory-types";
 
 export type MemoryIndex = {
   listForOwner(ownerAddress: string): Promise<MemoryIndexRecord[]>;
+  listRecent(ownerAddress?: string, limit?: number): Promise<MemoryIndexRecord[]>;
   latest(ownerAddress?: string): Promise<MemoryIndexRecord | undefined>;
   save(record: MemoryIndexRecord): Promise<void>;
 };
@@ -60,13 +61,22 @@ class LocalMemoryIndex implements MemoryIndex {
     return records.filter((record) => record.ownerAddress === ownerAddress);
   }
 
-  async latest(ownerAddress?: string): Promise<MemoryIndexRecord | undefined> {
+  async listRecent(
+    ownerAddress?: string,
+    limit = 50
+  ): Promise<MemoryIndexRecord[]> {
     const records = await readLocalRecords();
     const filtered = ownerAddress
       ? records.filter((record) => record.ownerAddress === ownerAddress)
       : records;
 
-    return filtered.sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+    return filtered
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, limit);
+  }
+
+  async latest(ownerAddress?: string): Promise<MemoryIndexRecord | undefined> {
+    return (await this.listRecent(ownerAddress, 1))[0];
   }
 
   async save(record: MemoryIndexRecord): Promise<void> {
@@ -98,13 +108,16 @@ class SupabaseMemoryIndex implements MemoryIndex {
     return (data ?? []).map(rowToRecord);
   }
 
-  async latest(ownerAddress?: string): Promise<MemoryIndexRecord | undefined> {
+  async listRecent(
+    ownerAddress?: string,
+    limit = 50
+  ): Promise<MemoryIndexRecord[]> {
     const client = await getSupabaseClient();
     let query = client
       .from("langclaw_private_memory_index")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(limit);
 
     if (ownerAddress) {
       query = query.eq("owner_address", ownerAddress);
@@ -116,7 +129,11 @@ class SupabaseMemoryIndex implements MemoryIndex {
       throw new Error(error.message);
     }
 
-    return data?.[0] ? rowToRecord(data[0]) : undefined;
+    return (data ?? []).map(rowToRecord);
+  }
+
+  async latest(ownerAddress?: string): Promise<MemoryIndexRecord | undefined> {
+    return (await this.listRecent(ownerAddress, 1))[0];
   }
 
   async save(record: MemoryIndexRecord): Promise<void> {

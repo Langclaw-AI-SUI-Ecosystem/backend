@@ -69,12 +69,12 @@ export async function getWalrusReadiness(
     }
   }
 
-  let latest: MemoryIndexRecord | undefined;
+  let candidates: MemoryIndexRecord[] = [];
 
   try {
-    latest = await memoryIndex.latest(ownerAddress);
+    candidates = await memoryIndex.listRecent(ownerAddress, 50);
   } catch (error) {
-    latest = undefined;
+    candidates = [];
     checks.push({
       name: "metadataIndexRead",
       required: false,
@@ -84,7 +84,7 @@ export async function getWalrusReadiness(
     });
   }
 
-  if (!latest) {
+  if (candidates.length === 0) {
     const reportChecks = [
       ...checks,
       {
@@ -107,12 +107,41 @@ export async function getWalrusReadiness(
     };
   }
 
-  const proofRead = await readLatestMemoryProof(latest.walrusBlobId, {
-    preferNetwork: strictMainnet,
-    readLocal: () => walrus.readEnvelope(latest.walrusBlobId),
-  });
+  const requirePublicWalrus = strictMainnet || integrations.walrus.mode === "http";
+  const skippedProofs: Array<{ walrusBlobId: string; reason: string }> = [];
+  let latest: MemoryIndexRecord | undefined;
+  let proofRead:
+    | { ok: true; source: "local" | "aggregator"; url?: string }
+    | undefined;
 
-  if (proofRead.ok) {
+  for (const candidate of candidates) {
+    if (requirePublicWalrus && isLocalFallbackWalrusBlobId(candidate.walrusBlobId)) {
+      skippedProofs.push({
+        walrusBlobId: candidate.walrusBlobId,
+        reason:
+          "Local fallback blob ids are not retrievable from the public Walrus aggregator.",
+      });
+      continue;
+    }
+
+    const read = await readLatestMemoryProof(candidate.walrusBlobId, {
+      preferNetwork: requirePublicWalrus,
+      readLocal: () => walrus.readEnvelope(candidate.walrusBlobId),
+    });
+
+    if (read.ok) {
+      latest = candidate;
+      proofRead = read;
+      break;
+    }
+
+    skippedProofs.push({
+      walrusBlobId: candidate.walrusBlobId,
+      reason: read.reason,
+    });
+  }
+
+  if (latest && proofRead) {
     const reportChecks = [
       ...checks,
       {
@@ -127,6 +156,11 @@ export async function getWalrusReadiness(
           walrusBlobId: latest.walrusBlobId,
           walrusObjectId: latest.walrusObjectId,
           retrievalSource: proofRead.source,
+          scannedProofCount: candidates.length,
+          skippedProofCount: skippedProofs.length,
+          ...(skippedProofs.length
+            ? { skippedProofs: skippedProofs.slice(0, 5) }
+            : {}),
           ...(proofRead.url ? { url: proofRead.url } : {}),
         },
       },
@@ -142,7 +176,8 @@ export async function getWalrusReadiness(
       integrations,
     };
   } else {
-    const message = proofRead.reason;
+    const message = buildLatestProofFailureReason(skippedProofs, requirePublicWalrus);
+    const newest = candidates[0];
     const reportChecks = [
       ...checks,
       {
@@ -150,7 +185,12 @@ export async function getWalrusReadiness(
         required: true,
         status: "failed" as const,
         message,
-        details: { walrusBlobId: latest.walrusBlobId },
+        details: {
+          walrusBlobId: newest?.walrusBlobId,
+          scannedProofCount: candidates.length,
+          skippedProofCount: skippedProofs.length,
+          skippedProofs: skippedProofs.slice(0, 5),
+        },
       },
     ];
 
@@ -158,13 +198,41 @@ export async function getWalrusReadiness(
       configured: true,
       ready: false,
       strictMainnet,
-      latest,
+      latest: newest,
       reason: message,
       checks: reportChecks,
       missing: collectMissing(reportChecks),
       integrations,
     };
   }
+}
+
+function isLocalFallbackWalrusBlobId(blobId: string) {
+  return blobId.startsWith("walrus_");
+}
+
+function buildLatestProofFailureReason(
+  skippedProofs: Array<{ walrusBlobId: string; reason: string }>,
+  requirePublicWalrus: boolean
+) {
+  if (skippedProofs.length === 0) {
+    return "No Sui Walrus private memory proof found yet. Run /api/discover (or npm run demo) once.";
+  }
+
+  const localFallbackCount = skippedProofs.filter((proof) =>
+    proof.reason.includes("Local fallback blob ids")
+  ).length;
+  const latestReason = skippedProofs[0]?.reason;
+  const prefix = requirePublicWalrus
+    ? "No public Walrus memory proof could be retrieved."
+    : "No Walrus memory proof could be retrieved.";
+  const localFallbackDetail =
+    localFallbackCount > 0
+      ? ` Skipped ${localFallbackCount} local fallback proof record(s).`
+      : "";
+  const latestDetail = latestReason ? ` Latest skipped reason: ${latestReason}` : "";
+
+  return `${prefix}${localFallbackDetail}${latestDetail}`;
 }
 
 function buildStaticChecks(
