@@ -2,9 +2,11 @@ import {
   clearAlphaWatchlist,
   deleteAlphaWatchlistItem,
   listAlphaWatchlist,
+  updateAlphaWatchlistMetadata,
   upsertAlphaWatchlistItem,
   watchlistErrorResponse,
   type AlphaWatchlistInput,
+  type AlphaWatchlistMetadataInput,
 } from "../lib/watchlist";
 import type { WalletAuthInput } from "../lib/server/wallet-auth";
 
@@ -12,6 +14,7 @@ type WatchlistBody = {
   action?: unknown;
   item?: AlphaWatchlistInput;
   itemId?: unknown;
+  updates?: AlphaWatchlistMetadataInput;
   wallet?: WalletAuthInput;
 };
 
@@ -43,6 +46,17 @@ export async function handleWatchlist(request: Request) {
       return Response.json({
         configured: true,
         ...(await deleteAlphaWatchlistItem(auth, body.itemId)),
+      });
+    }
+
+    if (body.action === "update") {
+      return Response.json({
+        configured: true,
+        item: await updateAlphaWatchlistMetadata(
+          auth,
+          body.itemId,
+          body.updates ?? {}
+        ),
       });
     }
 
